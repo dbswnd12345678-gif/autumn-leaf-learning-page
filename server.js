@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const fetch = require("node-fetch");
 
 const app = express();
 app.use(express.json({ limit: "12mb" }));
@@ -61,34 +62,35 @@ app.post("/api/chat", async (req, res) => {
 
     const attachment = loadImageAttachment(image);
 
-    const response = await fetch(
-      `${ANYTHINGLLM_BASE_URL}/api/v1/workspace/${ANYTHINGLLM_WORKSPACE_SLUG}/chat`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${ANYTHINGLLM_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message,
-          mode: "chat",
-          sessionId,
-          attachments: attachment ? [attachment] : [],
-        }),
-      }
-    );
+    const baseUrl = ANYTHINGLLM_BASE_URL.replace(/\/+$/, ""); // 끝에 슬래시가 있으면 제거
+    const targetUrl = `${baseUrl}/api/v1/workspace/${ANYTHINGLLM_WORKSPACE_SLUG}/chat`;
+    console.log("[요청] AnythingLLM 호출:", targetUrl);
+
+    const response = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ANYTHINGLLM_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message,
+        mode: "chat",
+        sessionId,
+        attachments: attachment ? [attachment] : [],
+      }),
+    });
 
     if (!response.ok) {
       const text = await response.text();
-      console.error("AnythingLLM API 오류:", response.status, text);
-      return res.status(502).json({ error: `AnythingLLM 응답 오류 (${response.status})` });
+      console.error("[AnythingLLM API 오류]", response.status, text);
+      return res.status(502).json({ error: `AnythingLLM 응답 오류 (${response.status}): ${text.slice(0, 200)}` });
     }
 
     const data = await response.json();
     res.json({ answer: data.textResponse || "(응답이 비어 있습니다)" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "서버 내부 오류가 발생했습니다." });
+    console.error("[/api/chat 예외 발생]", err);
+    res.status(500).json({ error: `서버 내부 오류: ${err.message}` });
   }
 });
 
