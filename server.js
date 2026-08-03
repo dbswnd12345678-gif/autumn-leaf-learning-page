@@ -62,7 +62,10 @@ app.post("/api/chat", async (req, res) => {
 
     const attachment = loadImageAttachment(image);
 
-    const baseUrl = ANYTHINGLLM_BASE_URL.replace(/\/+$/, ""); // 끝에 슬래시가 있으면 제거
+    let baseUrl = ANYTHINGLLM_BASE_URL.trim().replace(/\/+$/, ""); // 끝 슬래시 제거
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      baseUrl = `https://${baseUrl}`; // 스킴이 빠졌으면 https://를 자동으로 붙여줌
+    }
     const targetUrl = `${baseUrl}/api/v1/workspace/${ANYTHINGLLM_WORKSPACE_SLUG}/chat`;
     console.log("[요청] AnythingLLM 호출:", targetUrl);
 
