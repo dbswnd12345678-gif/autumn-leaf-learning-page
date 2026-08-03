@@ -69,6 +69,10 @@ app.post("/api/chat", async (req, res) => {
     const targetUrl = `${baseUrl}/api/v1/workspace/${ANYTHINGLLM_WORKSPACE_SLUG}/chat`;
     console.log("[요청] AnythingLLM 호출:", targetUrl);
 
+    // Developer API는 메시지 앞에 "@agent"가 있어야만 Agent Flow(지식그래프 도구) 호출을 시도한다.
+    // 끝에 "/exit"을 붙여 매 요청마다 에이전트 세션을 바로 종료시키고 최종 답변만 받는다.
+    const agentMessage = `@agent ${message} /exit`;
+
     const response = await fetch(targetUrl, {
       method: "POST",
       headers: {
@@ -76,7 +80,7 @@ app.post("/api/chat", async (req, res) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        message,
+        message: agentMessage,
         mode: "chat",
         sessionId,
         attachments: attachment ? [attachment] : [],
