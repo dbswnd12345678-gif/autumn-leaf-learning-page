@@ -1,0 +1,16 @@
+{
+  "name": "autumn-leaf-learning-page",
+  "version": "1.0.0",
+  "private": true,
+  "description": "단풍현상 관찰 학습 페이지 - 이미지 뷰어 + AnythingLLM 연동 채팅",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}
