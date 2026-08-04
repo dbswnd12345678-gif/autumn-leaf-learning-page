@@ -73,6 +73,14 @@ chatForm.addEventListener("submit", async (e) => {
       addMessage(data.error || "오류가 발생했습니다.", "error");
       return;
     }
+    if (data.pheno) {
+      const p = data.pheno;
+      addMessage(
+        `이미지 분류 모델(PhenoVisionL) 판정 — 초록잎 ${Math.round(p.green * 100)}%, ` +
+          `단풍든 잎 ${Math.round(p.colored * 100)}%, 새 잎눈 ${Math.round(p.breaking_buds * 100)}%`,
+        "pheno"
+      );
+    }
     addMessage(data.answer, "ai");
   } catch (err) {
     loadingEl.remove();

@@ -138,6 +138,14 @@ body {
   font-size: 0.85rem;
 }
 
+.msg-pheno {
+  align-self: flex-start;
+  background: #eef3ea;
+  color: #47603c;
+  font-size: 0.82rem;
+  border: 1px dashed #b8cbaa;
+}
+
 .msg-loading {
   align-self: flex-start;
   background: #f1ede7;

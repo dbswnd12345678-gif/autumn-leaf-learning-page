@@ -12,6 +12,8 @@ const {
   ANYTHINGLLM_BASE_URL,
   ANYTHINGLLM_API_KEY,
   ANYTHINGLLM_WORKSPACE_SLUG,
+  PHENOVISION_API_URL,
+  PHENOVISION_SHARED_SECRET,
   PORT = 3000,
 } = process.env;
 
@@ -22,6 +24,11 @@ if (!ANYTHINGLLM_BASE_URL || !ANYTHINGLLM_API_KEY || !ANYTHINGLLM_WORKSPACE_SLUG
   console.warn(
     "[경고] .env 파일(또는 Railway 환경변수)에 ANYTHINGLLM_BASE_URL / ANYTHINGLLM_API_KEY / ANYTHINGLLM_WORKSPACE_SLUG 가 설정되지 않았습니다."
   );
+}
+
+function normalizeBaseUrl(rawUrl) {
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
 function mimeFromExt(filename) {
@@ -46,6 +53,48 @@ function loadImageAttachment(imageName) {
   };
 }
 
+// PhenoVisionL은 보조 신호일 뿐이므로, 실패하면 null을 돌려주고 대화는 그대로 진행한다.
+async function classifyLeafImage(attachment) {
+  if (!PHENOVISION_API_URL || !attachment) return null;
+
+  try {
+    const url = `${normalizeBaseUrl(PHENOVISION_API_URL)}/classify`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(PHENOVISION_SHARED_SECRET ? { "X-API-Key": PHENOVISION_SHARED_SECRET } : {}),
+      },
+      body: JSON.stringify({ image_base64: attachment.contentString }),
+      timeout: 30000,
+    });
+
+    if (!response.ok) {
+      console.error("[PhenoVisionL 오류]", response.status, (await response.text()).slice(0, 200));
+      return null;
+    }
+    return await response.json();
+  } catch (err) {
+    console.error("[PhenoVisionL 호출 실패]", err.message);
+    return null;
+  }
+}
+
+function toPercent(value) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function buildEnrichedMessage(message, pheno) {
+  if (!pheno) return message;
+
+  return (
+    `[AI 이미지 분석 결과 - 초록잎 ${toPercent(pheno.green)}, ` +
+    `단풍든 잎 ${toPercent(pheno.colored)}, 새 잎눈 ${toPercent(pheno.breaking_buds)} ` +
+    `(PhenoVisionL 모델 판정: ${pheno.summary})]\n\n` +
+    `학생 질문: ${message}`
+  );
+}
+
 app.post("/api/chat", async (req, res) => {
   try {
     const { message, image, sessionId } = req.body;
@@ -62,16 +111,17 @@ app.post("/api/chat", async (req, res) => {
 
     const attachment = loadImageAttachment(image);
 
-    let baseUrl = ANYTHINGLLM_BASE_URL.trim().replace(/\/+$/, ""); // 끝 슬래시 제거
-    if (!/^https?:\/\//i.test(baseUrl)) {
-      baseUrl = `https://${baseUrl}`; // 스킴이 빠졌으면 https://를 자동으로 붙여줌
+    const pheno = await classifyLeafImage(attachment);
+    if (pheno) {
+      console.log("[PhenoVisionL]", image, pheno);
     }
-    const targetUrl = `${baseUrl}/api/v1/workspace/${ANYTHINGLLM_WORKSPACE_SLUG}/chat`;
+
+    const targetUrl = `${normalizeBaseUrl(ANYTHINGLLM_BASE_URL)}/api/v1/workspace/${ANYTHINGLLM_WORKSPACE_SLUG}/chat`;
     console.log("[요청] AnythingLLM 호출:", targetUrl);
 
     // Developer API는 메시지 앞에 "@agent"가 있어야만 Agent Flow(지식그래프 도구) 호출을 시도한다.
     // 끝에 "/exit"을 붙여 매 요청마다 에이전트 세션을 바로 종료시키고 최종 답변만 받는다.
-    const agentMessage = `@agent ${message} /exit`;
+    const agentMessage = `@agent ${buildEnrichedMessage(message, pheno)} /exit`;
 
     const response = await fetch(targetUrl, {
       method: "POST",
@@ -94,7 +144,7 @@ app.post("/api/chat", async (req, res) => {
     }
 
     const data = await response.json();
-    res.json({ answer: data.textResponse || "(응답이 비어 있습니다)" });
+    res.json({ answer: data.textResponse || "(응답이 비어 있습니다)", pheno });
   } catch (err) {
     console.error("[/api/chat 예외 발생]", err);
     res.status(500).json({ error: `서버 내부 오류: ${err.message}` });
