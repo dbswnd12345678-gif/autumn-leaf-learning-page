@@ -8,6 +8,7 @@ import base64
 import binascii
 import io
 import os
+import threading
 from contextlib import asynccontextmanager
 
 import torch
@@ -20,21 +21,40 @@ MODEL_ID = os.getenv("MODEL_ID", "phenobase/phenovisionL")
 SHARED_SECRET = os.getenv("PHENOVISION_SHARED_SECRET")
 DECISION_THRESHOLD = float(os.getenv("DECISION_THRESHOLD", "0.5"))
 
-state = {"processor": None, "model": None}
+state = {
+    "processor": None,
+    "model": None,
+    "loading": False,
+    "ready": False,
+    "error": None,
+}
 
 
 def load_model():
-    processor = AutoImageProcessor.from_pretrained(MODEL_ID)
-    model = AutoModelForImageClassification.from_pretrained(MODEL_ID)
-    model.eval()
-    state["processor"] = processor
-    state["model"] = model
+    state["loading"] = True
+    state["error"] = None
+    try:
+        print(f"[PhenoVisionL] 모델 로딩 시작: {MODEL_ID}")
+        processor = AutoImageProcessor.from_pretrained(MODEL_ID)
+        model = AutoModelForImageClassification.from_pretrained(MODEL_ID)
+        model.eval()
+        state["processor"] = processor
+        state["model"] = model
+        state["ready"] = True
+        print("[PhenoVisionL] 모델 로딩 완료")
+    except Exception as err:
+        state["error"] = str(err)
+        state["ready"] = False
+        print(f"[PhenoVisionL] 모델 로딩 실패: {err}")
+    finally:
+        state["loading"] = False
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 모델 가중치(약 1.2GB)를 내려받아 메모리에 올린다. 최초 기동 시 수 분 걸릴 수 있다.
-    load_model()
+    # 서버를 먼저 띄운 뒤 백그라운드에서 모델을 내려받는다.
+    # (Railway healthcheck가 모델 다운로드를 기다리다 실패하지 않도록)
+    threading.Thread(target=load_model, daemon=True).start()
     yield
 
 
@@ -81,15 +101,24 @@ def build_summary(green: float, colored: float, breaking_buds: float) -> str:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "model_loaded": state["model"] is not None, "model_id": MODEL_ID}
+    return {
+        "ok": True,
+        "model_loaded": state["ready"],
+        "model_loading": state["loading"],
+        "model_id": MODEL_ID,
+        "error": state["error"],
+    }
 
 
 @app.post("/classify", response_model=ClassifyResponse)
 def classify(req: ClassifyRequest, x_api_key: str | None = Header(default=None)):
     if SHARED_SECRET and x_api_key != SHARED_SECRET:
         raise HTTPException(status_code=401, detail="인증 실패")
+    if state["loading"] and not state["ready"]:
+        raise HTTPException(status_code=503, detail="모델을 아직 불러오는 중입니다. 1~3분 후 다시 시도해주세요.")
     if state["model"] is None:
-        raise HTTPException(status_code=503, detail="모델을 아직 불러오는 중입니다.")
+        detail = state["error"] or "모델을 아직 불러오지 못했습니다."
+        raise HTTPException(status_code=503, detail=detail)
 
     image = decode_image(req.image_base64)
     inputs = state["processor"](images=image, return_tensors="pt")
