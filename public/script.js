@@ -37,13 +37,55 @@ function selectImage(file) {
   renderThumbnails();
 }
 
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// AnythingLLM 답변의 **굵게**, 목록, 줄바꿈을 학습 페이지에서도 보이게 한다.
+function renderMarkdown(text) {
+  let html = escapeHtml(text);
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
+
+  return html
+    .split(/\n\n+/)
+    .map((block) => {
+      const lines = block.split("\n").filter((line) => line.trim().length > 0);
+      if (lines.length > 0 && lines.every((line) => /^\s*[-*]\s+/.test(line))) {
+        const items = lines
+          .map((line) => `<li>${line.replace(/^\s*[-*]\s+/, "")}</li>`)
+          .join("");
+        return `<ul>${items}</ul>`;
+      }
+      return `<p>${block.replace(/\n/g, "<br>")}</p>`;
+    })
+    .join("");
+}
+
 function addMessage(text, type) {
   const div = document.createElement("div");
   div.className = `msg msg-${type}`;
-  div.textContent = text;
+  if (type === "ai") {
+    div.innerHTML = renderMarkdown(text);
+  } else {
+    div.textContent = text;
+  }
   chatLog.appendChild(div);
   chatLog.scrollTop = chatLog.scrollHeight;
   return div;
+}
+
+function formatPhenoMessage(p) {
+  return (
+    `이미지 분류 모델(PhenoVisionL) 판정 — ` +
+    `초록 잎이 있을 확률 ${Math.round(p.green * 100)}%, ` +
+    `단풍든 잎이 있을 확률 ${Math.round(p.colored * 100)}%, ` +
+    `새 잎눈이 있을 확률 ${Math.round(p.breaking_buds * 100)}%`
+  );
 }
 
 // Enter = 전송, Shift+Enter = 줄바꿈
@@ -62,9 +104,23 @@ chatForm.addEventListener("submit", async (e) => {
   addMessage(text, "user");
   chatInput.value = "";
   sendBtn.disabled = true;
-  const loadingEl = addMessage("AI가 지식그래프를 조회하며 답변을 준비 중입니다...", "loading");
+  const loadingEl = addMessage("이미지 분석 후 지식그래프를 조회하며 답변을 준비 중입니다...", "loading");
 
+  let pheno = null;
   try {
+    // PhenoVision을 먼저 끝내 화면에 바로 보여주고, 같은 결과는 채팅 API에서 재사용한다.
+    const phenoRes = await fetch("/api/pheno", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: selectedImage }),
+    });
+    const phenoData = await phenoRes.json();
+    if (phenoRes.ok && phenoData.pheno) {
+      pheno = phenoData.pheno;
+      addMessage(formatPhenoMessage(pheno), "pheno");
+      loadingEl.textContent = "AI가 지식그래프를 조회하며 답변을 준비 중입니다...";
+    }
+
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -72,6 +128,7 @@ chatForm.addEventListener("submit", async (e) => {
         message: text,
         image: selectedImage,
         sessionId,
+        pheno,
       }),
     });
     const data = await res.json();
@@ -81,15 +138,8 @@ chatForm.addEventListener("submit", async (e) => {
       addMessage(data.error || "오류가 발생했습니다.", "error");
       return;
     }
-    if (data.pheno) {
-      const p = data.pheno;
-      addMessage(
-        `이미지 분류 모델(PhenoVisionL) 판정 — ` +
-          `초록 잎이 있을 확률 ${Math.round(p.green * 100)}%, ` +
-          `단풍든 잎이 있을 확률 ${Math.round(p.colored * 100)}%, ` +
-          `새 잎눈이 있을 확률 ${Math.round(p.breaking_buds * 100)}%`,
-        "pheno"
-      );
+    if (!pheno && data.pheno) {
+      addMessage(formatPhenoMessage(data.pheno), "pheno");
     }
     addMessage(data.answer, "ai");
   } catch (err) {

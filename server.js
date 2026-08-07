@@ -19,6 +19,8 @@ const {
 
 const IMAGES_DIR = path.join(__dirname, "public", "images");
 const ALLOWED_IMAGES = ["leaf1.jpg", "leaf2.jpg", "leaf3.jpg", "leaf4.jpg", "leaf5.jpg"];
+// 같은 샘플 이미지는 매 질문마다 다시 분류하지 않도록 메모리 캐시
+const phenoCache = new Map();
 
 if (!ANYTHINGLLM_BASE_URL || !ANYTHINGLLM_API_KEY || !ANYTHINGLLM_WORKSPACE_SLUG) {
   console.warn(
@@ -53,9 +55,22 @@ function loadImageAttachment(imageName) {
   };
 }
 
+function isValidPheno(pheno) {
+  return (
+    pheno &&
+    typeof pheno === "object" &&
+    typeof pheno.green === "number" &&
+    typeof pheno.colored === "number" &&
+    typeof pheno.breaking_buds === "number"
+  );
+}
+
 // PhenoVisionL은 보조 신호일 뿐이므로, 실패하면 null을 돌려주고 대화는 그대로 진행한다.
-async function classifyLeafImage(attachment) {
+async function classifyLeafImage(attachment, imageName) {
   if (!PHENOVISION_API_URL || !attachment) return null;
+  if (imageName && phenoCache.has(imageName)) {
+    return phenoCache.get(imageName);
+  }
 
   try {
     const url = `${normalizeBaseUrl(PHENOVISION_API_URL)}/classify`;
@@ -73,7 +88,11 @@ async function classifyLeafImage(attachment) {
       console.error("[PhenoVisionL 오류]", response.status, (await response.text()).slice(0, 200));
       return null;
     }
-    return await response.json();
+    const result = await response.json();
+    if (imageName && isValidPheno(result)) {
+      phenoCache.set(imageName, result);
+    }
+    return result;
   } catch (err) {
     console.error("[PhenoVisionL 호출 실패]", err.message);
     return null;
@@ -84,15 +103,35 @@ function toPercent(value) {
   return `${Math.round(value * 100)}%`;
 }
 
+function keywordHintsFromPheno(pheno) {
+  if (!isValidPheno(pheno)) {
+    return "chlorophyll, carotenoid, anthocyanin, leaf senescence";
+  }
+  const hints = ["leaf senescence"];
+  if (pheno.green >= 0.3) hints.push("chlorophyll");
+  if (pheno.colored >= 0.3) hints.push("carotenoid", "anthocyanin", "autumn leaf color");
+  if (pheno.breaking_buds >= 0.3) hints.push("bud burst", "breaking buds");
+  if (hints.length === 1) hints.push("chlorophyll", "carotenoid", "anthocyanin");
+  return [...new Set(hints)].join(", ");
+}
+
 function buildEnrichedMessage(message, pheno) {
-  if (!pheno) return message;
+  const hints = keywordHintsFromPheno(pheno);
+  if (!pheno) {
+    return (
+      `학생 질문: ${message}\n\n` +
+      `지식그래프 조회 시 keyword에는 영어 생물 용어를 쉼표로 넣어주세요. 예: ${hints}`
+    );
+  }
 
   return (
     `[AI 이미지 분석 결과 - 초록 잎이 있을 확률 ${toPercent(pheno.green)}, ` +
     `단풍든 잎이 있을 확률 ${toPercent(pheno.colored)}, ` +
     `새 잎눈이 있을 확률 ${toPercent(pheno.breaking_buds)} ` +
     `(PhenoVisionL 모델 판정: ${pheno.summary})]\n\n` +
-    `학생 질문: ${message}`
+    `학생 질문: ${message}\n\n` +
+    `지식그래프 조회 도구를 호출할 때 keyword를 비우지 말고, ` +
+    `아래 영어 키워드를 참고해 쉼표로 구분해 넣으세요: ${hints}`
   );
 }
 
@@ -107,9 +146,24 @@ function sanitizeAnswer(text) {
     .trim();
 }
 
+app.post("/api/pheno", async (req, res) => {
+  try {
+    const { image } = req.body || {};
+    const attachment = loadImageAttachment(image);
+    if (!attachment) {
+      return res.status(400).json({ error: "허용된 이미지가 필요합니다.", pheno: null });
+    }
+    const pheno = await classifyLeafImage(attachment, image);
+    res.json({ pheno });
+  } catch (err) {
+    console.error("[/api/pheno 예외 발생]", err);
+    res.status(500).json({ error: `서버 내부 오류: ${err.message}`, pheno: null });
+  }
+});
+
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, image, sessionId } = req.body;
+    const { message, image, sessionId, pheno: providedPheno } = req.body;
 
     if (!message || typeof message !== "string") {
       return res.status(400).json({ error: "message가 필요합니다." });
@@ -123,7 +177,14 @@ app.post("/api/chat", async (req, res) => {
 
     const attachment = loadImageAttachment(image);
 
-    const pheno = await classifyLeafImage(attachment);
+    let pheno = isValidPheno(providedPheno) ? providedPheno : null;
+    if (pheno && image) {
+      phenoCache.set(image, pheno);
+    }
+    if (!pheno) {
+      pheno = await classifyLeafImage(attachment, image);
+    }
+
     if (pheno) {
       console.log("[PhenoVisionL]", image, pheno);
     } else if (!PHENOVISION_API_URL) {

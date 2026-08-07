@@ -123,6 +123,32 @@ body {
   align-self: flex-start;
   background: #f1ede7;
   color: #2b2b2b;
+  white-space: normal;
+}
+
+.msg-ai p {
+  margin: 0 0 0.65em;
+}
+
+.msg-ai p:last-child {
+  margin-bottom: 0;
+}
+
+.msg-ai ul {
+  margin: 0.4em 0 0.65em;
+  padding-left: 1.25em;
+}
+
+.msg-ai li {
+  margin: 0.2em 0;
+}
+
+.msg-ai strong {
+  font-weight: 700;
+}
+
+.msg-ai em {
+  font-style: italic;
 }
 
 .msg-user {
