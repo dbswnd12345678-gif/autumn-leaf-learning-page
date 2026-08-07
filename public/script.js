@@ -76,8 +76,10 @@ chatForm.addEventListener("submit", async (e) => {
     if (data.pheno) {
       const p = data.pheno;
       addMessage(
-        `이미지 분류 모델(PhenoVisionL) 판정 — 초록잎 ${Math.round(p.green * 100)}%, ` +
-          `단풍든 잎 ${Math.round(p.colored * 100)}%, 새 잎눈 ${Math.round(p.breaking_buds * 100)}%`,
+        `이미지 분류 모델(PhenoVisionL) 판정 — ` +
+          `초록 잎이 있을 확률 ${Math.round(p.green * 100)}%, ` +
+          `단풍든 잎이 있을 확률 ${Math.round(p.colored * 100)}%, ` +
+          `새 잎눈이 있을 확률 ${Math.round(p.breaking_buds * 100)}%`,
         "pheno"
       );
     }

@@ -88,8 +88,9 @@ function buildEnrichedMessage(message, pheno) {
   if (!pheno) return message;
 
   return (
-    `[AI 이미지 분석 결과 - 초록잎 ${toPercent(pheno.green)}, ` +
-    `단풍든 잎 ${toPercent(pheno.colored)}, 새 잎눈 ${toPercent(pheno.breaking_buds)} ` +
+    `[AI 이미지 분석 결과 - 초록 잎이 있을 확률 ${toPercent(pheno.green)}, ` +
+    `단풍든 잎이 있을 확률 ${toPercent(pheno.colored)}, ` +
+    `새 잎눈이 있을 확률 ${toPercent(pheno.breaking_buds)} ` +
     `(PhenoVisionL 모델 판정: ${pheno.summary})]\n\n` +
     `학생 질문: ${message}`
   );
