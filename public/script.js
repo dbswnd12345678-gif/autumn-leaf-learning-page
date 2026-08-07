@@ -46,6 +46,14 @@ function addMessage(text, type) {
   return div;
 }
 
+// Enter = 전송, Shift+Enter = 줄바꿈
+chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    chatForm.requestSubmit();
+  }
+});
+
 chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = chatInput.value.trim();
