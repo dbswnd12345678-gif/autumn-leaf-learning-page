@@ -103,35 +103,15 @@ function toPercent(value) {
   return `${Math.round(value * 100)}%`;
 }
 
-function keywordHintsFromPheno(pheno) {
-  if (!isValidPheno(pheno)) {
-    return "chlorophyll, carotenoid, anthocyanin, leaf senescence";
-  }
-  const hints = ["leaf senescence"];
-  if (pheno.green >= 0.3) hints.push("chlorophyll");
-  if (pheno.colored >= 0.3) hints.push("carotenoid", "anthocyanin", "autumn leaf color");
-  if (pheno.breaking_buds >= 0.3) hints.push("bud burst", "breaking buds");
-  if (hints.length === 1) hints.push("chlorophyll", "carotenoid", "anthocyanin");
-  return [...new Set(hints)].join(", ");
-}
-
 function buildEnrichedMessage(message, pheno) {
-  const hints = keywordHintsFromPheno(pheno);
-  if (!pheno) {
-    return (
-      `학생 질문: ${message}\n\n` +
-      `지식그래프 조회 시 keyword에는 영어 생물 용어를 쉼표로 넣어주세요. 예: ${hints}`
-    );
-  }
+  if (!pheno) return message;
 
   return (
     `[AI 이미지 분석 결과 - 초록 잎이 있을 확률 ${toPercent(pheno.green)}, ` +
     `단풍든 잎이 있을 확률 ${toPercent(pheno.colored)}, ` +
     `새 잎눈이 있을 확률 ${toPercent(pheno.breaking_buds)} ` +
     `(PhenoVisionL 모델 판정: ${pheno.summary})]\n\n` +
-    `학생 질문: ${message}\n\n` +
-    `지식그래프 조회 도구를 호출할 때 keyword를 비우지 말고, ` +
-    `아래 영어 키워드를 참고해 쉼표로 구분해 넣으세요: ${hints}`
+    `학생 질문: ${message}`
   );
 }
 
