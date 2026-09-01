@@ -1,4 +1,4 @@
-const LEAF_IMAGES = ["leaf1.jpg", "leaf2.jpg", "leaf3.jpg", "leaf4.jpg", "leaf5.jpg"];
+const LEAF_IMAGES = ["leaf1.jpg", "leaf2.jpg", "leaf3.webp", "leaf4.jpg", "leaf5.png"];
 
 const mainImage = document.getElementById("main-image");
 const thumbnailRow = document.getElementById("thumbnail-row");

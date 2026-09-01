@@ -18,7 +18,7 @@ const {
 } = process.env;
 
 const IMAGES_DIR = path.join(__dirname, "public", "images");
-const ALLOWED_IMAGES = ["leaf1.jpg", "leaf2.jpg", "leaf3.jpg", "leaf4.jpg", "leaf5.jpg"];
+const ALLOWED_IMAGES = ["leaf1.jpg", "leaf2.jpg", "leaf3.webp", "leaf4.jpg", "leaf5.png"];
 // 같은 샘플 이미지는 매 질문마다 다시 분류하지 않도록 메모리 캐시
 const phenoCache = new Map();
 
