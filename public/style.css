@@ -211,6 +211,33 @@ body {
   cursor: not-allowed;
 }
 
+.history-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 12px;
+  flex-wrap: wrap;
+}
+
+.history-label {
+  font-size: 0.8rem;
+  color: #8a7a6a;
+}
+
+.history-actions button {
+  padding: 6px 12px;
+  background: #fff;
+  color: #c0521b;
+  border: 1px solid #c0521b;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.history-actions button:hover {
+  background: #fdf1e6;
+}
+
 @media (max-width: 760px) {
   .app-main {
     flex-direction: column;

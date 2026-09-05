@@ -6,6 +6,8 @@ const chatLog = document.getElementById("chat-log");
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
+const downloadXlsxBtn = document.getElementById("download-xlsx-btn");
+const downloadDocxBtn = document.getElementById("download-docx-btn");
 
 let selectedImage = LEAF_IMAGES[0];
 
@@ -150,5 +152,14 @@ chatForm.addEventListener("submit", async (e) => {
     chatInput.focus();
   }
 });
+
+// 지금까지 나눈 대화(내 질문 + AI 답변)를 엑셀 또는 워드 파일로 받는다.
+function downloadHistory(format) {
+  const url = `/api/history/${encodeURIComponent(sessionId)}/export?format=${format}`;
+  window.location.href = url;
+}
+
+downloadXlsxBtn?.addEventListener("click", () => downloadHistory("xlsx"));
+downloadDocxBtn?.addEventListener("click", () => downloadHistory("docx"));
 
 renderThumbnails();

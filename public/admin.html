@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>단풍 관찰 학습 - 연구자용 대화 기록 관리</title>
+<link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <header class="admin-header">
+    <h1>🍁 연구자용 대화 기록 관리</h1>
+    <p>학생들이 학습 페이지에서 나눈 대화 기록을 확인하고 내려받을 수 있습니다.</p>
+  </header>
+
+  <main class="admin-main">
+    <section class="key-box">
+      <label for="admin-key">관리자 키(ADMIN_KEY)</label>
+      <input type="password" id="admin-key" placeholder="Railway 환경변수에 설정한 ADMIN_KEY를 입력하세요" />
+      <button type="button" id="load-btn">학생 목록 불러오기</button>
+    </section>
+
+    <section class="download-box">
+      <h2>전체 학생 한 번에 받기</h2>
+      <div class="btn-row">
+        <button type="button" id="download-all-xlsx">📊 전체 엑셀(.xlsx) 다운로드</button>
+        <button type="button" id="download-all-docx">📄 전체 워드(.docx) 다운로드</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>학생별 목록</h2>
+      <table id="session-table">
+        <thead>
+          <tr>
+            <th>세션(학생) ID</th>
+            <th>대화 턴 수</th>
+            <th>첫 대화</th>
+            <th>마지막 대화</th>
+            <th>개별 다운로드</th>
+          </tr>
+        </thead>
+        <tbody id="session-tbody">
+          <tr><td colspan="5" class="empty">키를 입력하고 "학생 목록 불러오기"를 눌러주세요.</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="admin.js"></script>
+</body>
+</html>
