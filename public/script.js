@@ -1,6 +1,9 @@
 const LEAF_IMAGES = ["leaf1.jpg", "leaf2.jpg", "leaf3.webp", "leaf4.jpg", "leaf5.png"];
+const MAX_SELECTED_IMAGES = 2;
 
 const mainImage = document.getElementById("main-image");
+const compareImage = document.getElementById("compare-image");
+const imageSlot2 = document.getElementById("image-slot-2");
 const thumbnailRow = document.getElementById("thumbnail-row");
 const chatLog = document.getElementById("chat-log");
 const chatForm = document.getElementById("chat-form");
@@ -8,35 +11,112 @@ const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
 const downloadXlsxBtn = document.getElementById("download-xlsx-btn");
 const downloadDocxBtn = document.getElementById("download-docx-btn");
+const studentIdInput = document.getElementById("student-id-input");
+const studentIdSaveBtn = document.getElementById("student-id-save-btn");
+const studentIdStatus = document.getElementById("student-id-status");
 
-let selectedImage = LEAF_IMAGES[0];
+// 관찰 대상 사진은 최대 2장까지 선택할 수 있고, 2장을 고르면 비교 관찰 모드가 된다.
+let selectedImages = [LEAF_IMAGES[0]];
 
 function getSessionId() {
   let sid = localStorage.getItem("autumn_leaf_session_id");
   if (!sid) {
-    sid = "student-" + Math.random().toString(36).slice(2) + Date.now();
+    sid = "session-" + Math.random().toString(36).slice(2) + Date.now();
     localStorage.setItem("autumn_leaf_session_id", sid);
   }
   return sid;
 }
 const sessionId = getSessionId();
 
+// 학번(학생 번호)은 3회차 수업에 걸쳐 학생의 관찰 이력을 이어주는 고정 식별자다.
+// 브라우저/기기가 바뀌어도 학생이 같은 학번을 입력하면 이전 관찰 기록을 계속 이어서 쌓을 수 있다.
+function getStudentId() {
+  return localStorage.getItem("autumn_leaf_student_id") || "";
+}
+
+function setStudentId(id) {
+  localStorage.setItem("autumn_leaf_student_id", id);
+  updateStudentIdStatus();
+}
+
+function updateStudentIdStatus() {
+  const id = getStudentId();
+  if (id) {
+    studentIdInput.value = id;
+    studentIdStatus.textContent = `현재 학번: ${id} (다른 학번으로 바꾸려면 입력 후 확인을 눌러주세요)`;
+    studentIdStatus.classList.remove("student-id-missing");
+  } else {
+    studentIdStatus.textContent = "학번을 입력하고 확인을 눌러주세요.";
+    studentIdStatus.classList.add("student-id-missing");
+  }
+}
+
+studentIdSaveBtn.addEventListener("click", () => {
+  const value = studentIdInput.value.trim();
+  if (!value) {
+    studentIdStatus.textContent = "학번을 입력해주세요.";
+    return;
+  }
+  setStudentId(value);
+});
+
+updateStudentIdStatus();
+
+function isComparisonMode() {
+  return selectedImages.length === MAX_SELECTED_IMAGES;
+}
+
 function renderThumbnails() {
   thumbnailRow.innerHTML = "";
   LEAF_IMAGES.forEach((file) => {
+    const wrap = document.createElement("div");
+    wrap.className = "thumbnail-item";
+
     const img = document.createElement("img");
     img.src = `images/${file}`;
     img.alt = file;
-    if (file === selectedImage) img.classList.add("selected");
-    img.addEventListener("click", () => selectImage(file));
-    thumbnailRow.appendChild(img);
+    const order = selectedImages.indexOf(file);
+    if (order === 0) img.classList.add("selected", "selected-1");
+    if (order === 1) img.classList.add("selected", "selected-2");
+    img.addEventListener("click", () => toggleImage(file));
+
+    wrap.appendChild(img);
+    if (order >= 0) {
+      const badge = document.createElement("span");
+      badge.className = "thumbnail-badge";
+      badge.textContent = order + 1;
+      wrap.appendChild(badge);
+    }
+    thumbnailRow.appendChild(wrap);
   });
 }
 
-function selectImage(file) {
-  selectedImage = file;
-  mainImage.src = `images/${file}`;
+function toggleImage(file) {
+  const idx = selectedImages.indexOf(file);
+  if (idx >= 0) {
+    // 이미 선택된 사진을 다시 누르면 선택을 취소한다. 단, 최소 1장은 항상 선택되어 있어야 한다.
+    if (selectedImages.length > 1) {
+      selectedImages.splice(idx, 1);
+    }
+  } else if (selectedImages.length < MAX_SELECTED_IMAGES) {
+    selectedImages.push(file);
+  } else {
+    // 이미 2장이 선택된 상태에서 새 사진을 고르면, 먼저 선택했던 사진을 새 사진으로 바꾼다.
+    selectedImages.shift();
+    selectedImages.push(file);
+  }
+  updateImageDisplay();
   renderThumbnails();
+}
+
+function updateImageDisplay() {
+  mainImage.src = `images/${selectedImages[0]}`;
+  if (isComparisonMode()) {
+    compareImage.src = `images/${selectedImages[1]}`;
+    imageSlot2.classList.remove("hidden");
+  } else {
+    imageSlot2.classList.add("hidden");
+  }
 }
 
 function escapeHtml(text) {
@@ -81,15 +161,6 @@ function addMessage(text, type) {
   return div;
 }
 
-function formatPhenoMessage(p) {
-  return (
-    `이미지 분류 모델(PhenoVisionL) 판정 — ` +
-    `초록 잎이 있을 확률 ${Math.round(p.green * 100)}%, ` +
-    `단풍든 잎이 있을 확률 ${Math.round(p.colored * 100)}%, ` +
-    `새 잎눈이 있을 확률 ${Math.round(p.breaking_buds * 100)}%`
-  );
-}
-
 // Enter = 전송, Shift+Enter = 줄바꿈
 chatInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -103,34 +174,28 @@ chatForm.addEventListener("submit", async (e) => {
   const text = chatInput.value.trim();
   if (!text) return;
 
+  const studentId = getStudentId();
+  if (!studentId) {
+    studentIdStatus.textContent = "먼저 상단에 학번을 입력하고 확인을 눌러주세요.";
+    studentIdInput.focus();
+    return;
+  }
+
   addMessage(text, "user");
   chatInput.value = "";
   sendBtn.disabled = true;
-  const loadingEl = addMessage("이미지 분석 후 지식그래프를 조회하며 답변을 준비 중입니다...", "loading");
+  const loadingEl = addMessage("AI가 지식그래프를 조회하며 답변을 준비 중입니다...", "loading");
 
-  let pheno = null;
   try {
-    // PhenoVision을 먼저 끝내 화면에 바로 보여주고, 같은 결과는 채팅 API에서 재사용한다.
-    const phenoRes = await fetch("/api/pheno", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: selectedImage }),
-    });
-    const phenoData = await phenoRes.json();
-    if (phenoRes.ok && phenoData.pheno) {
-      pheno = phenoData.pheno;
-      addMessage(formatPhenoMessage(pheno), "pheno");
-      loadingEl.textContent = "AI가 지식그래프를 조회하며 답변을 준비 중입니다...";
-    }
-
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message: text,
-        image: selectedImage,
+        images: selectedImages,
+        studentId,
         sessionId,
-        pheno,
+        comparisonMode: isComparisonMode(),
       }),
     });
     const data = await res.json();
@@ -139,9 +204,6 @@ chatForm.addEventListener("submit", async (e) => {
     if (!res.ok) {
       addMessage(data.error || "오류가 발생했습니다.", "error");
       return;
-    }
-    if (!pheno && data.pheno) {
-      addMessage(formatPhenoMessage(data.pheno), "pheno");
     }
     addMessage(data.answer, "ai");
   } catch (err) {
@@ -154,8 +216,15 @@ chatForm.addEventListener("submit", async (e) => {
 });
 
 // 지금까지 나눈 대화(내 질문 + AI 답변)를 엑셀 또는 워드 파일로 받는다.
+// 학번을 기준으로 저장되므로, 3회차 수업에서 나눈 대화가 모두 하나의 파일로 합쳐져 내려받아진다.
 function downloadHistory(format) {
-  const url = `/api/history/${encodeURIComponent(sessionId)}/export?format=${format}`;
+  const studentId = getStudentId();
+  if (!studentId) {
+    studentIdStatus.textContent = "먼저 상단에 학번을 입력하고 확인을 눌러주세요.";
+    studentIdInput.focus();
+    return;
+  }
+  const url = `/api/history/${encodeURIComponent(studentId)}/export?format=${format}`;
   window.location.href = url;
 }
 
@@ -163,3 +232,4 @@ downloadXlsxBtn?.addEventListener("click", () => downloadHistory("xlsx"));
 downloadDocxBtn?.addEventListener("click", () => downloadHistory("docx"));
 
 renderThumbnails();
+updateImageDisplay();

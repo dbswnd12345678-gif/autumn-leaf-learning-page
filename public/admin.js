@@ -36,40 +36,43 @@ async function loadSessions() {
     const data = await res.json();
     if (!res.ok) {
       showStatus(data.error || "불러오기에 실패했습니다.");
-      sessionTbody.innerHTML = `<tr><td colspan="5" class="empty">불러오기에 실패했습니다.</td></tr>`;
+      sessionTbody.innerHTML = `<tr><td colspan="6" class="empty">불러오기에 실패했습니다.</td></tr>`;
       return;
     }
 
     showStatus("");
-    if (!data.sessions || data.sessions.length === 0) {
-      sessionTbody.innerHTML = `<tr><td colspan="5" class="empty">아직 저장된 대화 기록이 없습니다.</td></tr>`;
+    if (!data.students || data.students.length === 0) {
+      sessionTbody.innerHTML = `<tr><td colspan="6" class="empty">아직 저장된 대화 기록이 없습니다.</td></tr>`;
       return;
     }
 
     sessionTbody.innerHTML = "";
-    data.sessions.forEach((session) => {
+    data.students.forEach((student) => {
       const tr = document.createElement("tr");
 
       const tdId = document.createElement("td");
-      tdId.textContent = session.sessionId;
+      tdId.textContent = student.student_id;
 
       const tdCount = document.createElement("td");
-      tdCount.textContent = session.turnCount;
+      tdCount.textContent = student.turn_count;
+
+      const tdSessionCount = document.createElement("td");
+      tdSessionCount.textContent = student.session_count;
 
       const tdFirst = document.createElement("td");
-      tdFirst.textContent = session.firstAt || "-";
+      tdFirst.textContent = student.first_at || "-";
 
       const tdLast = document.createElement("td");
-      tdLast.textContent = session.lastAt || "-";
+      tdLast.textContent = student.last_at || "-";
 
       const tdActions = document.createElement("td");
       const xlsxLink = document.createElement("a");
-      xlsxLink.href = `/api/history/${encodeURIComponent(session.sessionId)}/export?format=xlsx`;
+      xlsxLink.href = `/api/history/${encodeURIComponent(student.student_id)}/export?format=xlsx`;
       xlsxLink.textContent = "엑셀";
       xlsxLink.style.marginRight = "8px";
 
       const docxLink = document.createElement("a");
-      docxLink.href = `/api/history/${encodeURIComponent(session.sessionId)}/export?format=docx`;
+      docxLink.href = `/api/history/${encodeURIComponent(student.student_id)}/export?format=docx`;
       docxLink.textContent = "워드";
 
       tdActions.appendChild(xlsxLink);
@@ -77,6 +80,7 @@ async function loadSessions() {
 
       tr.appendChild(tdId);
       tr.appendChild(tdCount);
+      tr.appendChild(tdSessionCount);
       tr.appendChild(tdFirst);
       tr.appendChild(tdLast);
       tr.appendChild(tdActions);

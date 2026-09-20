@@ -12,15 +12,27 @@
     <p>아래 이미지를 관찰하고, 오른쪽 채팅창에 관찰한 사실이나 궁금한 점을 적어보세요.</p>
   </header>
 
+  <div class="student-id-bar" id="student-id-bar">
+    <label for="student-id-input">학번(학생 번호)</label>
+    <input type="text" id="student-id-input" placeholder="예: 1-05" />
+    <button type="button" id="student-id-save-btn">확인</button>
+    <span class="student-id-status" id="student-id-status">학번을 입력하고 확인을 눌러주세요.</span>
+  </div>
+
   <main class="app-main">
     <section class="image-panel">
-      <div class="main-image-wrap">
-        <img id="main-image" src="images/leaf1.jpg" alt="선택된 단풍 이미지" />
+      <div class="main-image-wrap" id="main-image-wrap">
+        <div class="image-slot" id="image-slot-1">
+          <img id="main-image" src="images/leaf1.jpg" alt="선택된 단풍 이미지 1" />
+        </div>
+        <div class="image-slot hidden" id="image-slot-2">
+          <img id="compare-image" src="" alt="선택된 단풍 이미지 2" />
+        </div>
       </div>
       <div class="thumbnail-row" id="thumbnail-row">
         <!-- 썸네일은 script.js에서 자동 생성 -->
       </div>
-      <p class="hint">※ 이미지를 클릭하면 그 이미지에 대해 AI와 대화할 수 있어요.</p>
+      <p class="hint">※ 이미지를 클릭해서 선택하세요. 사진을 2장 선택하면 두 사진을 나란히 놓고 비교 관찰할 수 있어요.</p>
     </section>
 
     <section class="chat-panel">

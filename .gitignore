@@ -2,6 +2,7 @@ node_modules/
 .env
 __pycache__/
 *.pyc
+.venv/
 
 # 로컬 테스트 중 쌓이는 학생 대화 기록(실제 서비스에서는 Railway Volume에 저장됨)
 data/

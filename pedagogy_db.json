@@ -1,0 +1,164 @@
+{
+  "_meta": {
+    "설명": "AI Agent가 담당하는 관찰학습 단계(D~G)에 맞춘 교사 발문(표2) 재구성 규칙 목록. 관찰력 지수 범주(관찰방법 다양성, 객관성/정량화, 관찰범위)를 기준으로 aiStage를 매칭한다.",
+    "제외 항목": [
+      "조작관찰(H) - 현재 기술적으로 구현이 어려워 제외함",
+      "1-B(측정 여부) 중 시간 요소 - 시간 기반 관찰은 제외함",
+      "2-B(시간적 변화) - 시간에 따른 변화 관찰은 제외함"
+    ],
+    "비교관찰 관련 안내": "비교관찰은 학생이 사진 2장을 함께 선택하는 방식으로 구현한다. 사진 1장만 선택된 상태에서는 비교관찰 규칙(2-C-i, 2-C-ii)이, 2장이 선택된 상태에서는 2-C-compare-active 규칙이 우선 적용된다.",
+    "status 필드 설명": "draft_pending_teacher_review = 표2 발문을 AI Agent용 문장으로 초안 작성한 상태. 교사 전문가 검토 후 approved로 값을 변경해야 실제 서비스에 반영하는 것을 권장한다.",
+    "aiStage 설명": {
+      "D": "자유관찰 - 관찰 방법 안내 없이 AI가 개방형 질문으로 관찰을 유도",
+      "E": "관찰방법안내 - 감각기관/도구 등 관찰 방법에 대한 기본 안내",
+      "F": "단순관찰 - 학생의 1차 관찰 결과에 대한 피드백 및 보강 유도",
+      "G": "관찰방법추가안내 - 객관성/정량화, 관찰범위 확장을 위한 심화 안내"
+    }
+  },
+  "rules": [
+    {
+      "id": "D-open-1",
+      "aiStage": "D",
+      "category": "자유관찰 (개방형 질문)",
+      "sourceTemplate": null,
+      "adaptedForVisual": "이 사진을 보고 무엇이 보이는지 자유롭게 이야기해볼까요?",
+      "triggerCondition": { "turnIndex": 0, "isFirstObservation": true },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-A-i",
+      "aiStage": "E",
+      "category": "관찰방법 > 감각기관 활용",
+      "sourceTemplate": "무엇으로 관찰하였는가?",
+      "adaptedForVisual": "눈, 코, 손 등 여러 감각기관을 사용해서 관찰해볼까요?",
+      "triggerCondition": { "isFirstObservation": true },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-A-ii",
+      "aiStage": "E",
+      "category": "관찰방법 > 감각기관 활용",
+      "sourceTemplate": "~로 관찰하였는가?",
+      "adaptedForVisual": "다른 감각으로도 관찰할 수 있는지 함께 살펴볼까요?",
+      "triggerCondition": { "isFirstObservation": true },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-A-iii",
+      "aiStage": "F",
+      "category": "관찰방법 > 감각기관 활용",
+      "sourceTemplate": "관찰한 것을 정리해서 몇 가지의 감각으로 관찰했는지 말해보자",
+      "adaptedForVisual": "색, 모양, 냄새, 촉감 등 몇 가지 감각으로 관찰했는지 정리해볼까요?",
+      "triggerCondition": { "varietyCount": [1] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-A-iv",
+      "aiStage": "F",
+      "category": "관찰방법 > 감각기관 활용",
+      "sourceTemplate": "관찰한 대상에서 아직 사용하지 않은 감각이 있는지 확인해보자",
+      "adaptedForVisual": "아직 사용하지 않은 감각이 있다면 활용해보세요. 예를 들어 만져보거나 향을 맡아볼 수 있을까요?",
+      "triggerCondition": { "note": "관찰유형이 시각 단독일 때 다른 감각 사용을 유도하는 규칙 (varietyCount==1과 함께 참고)" },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-C-i",
+      "aiStage": "F",
+      "category": "관찰방법 > 측정의 유무 (정량화)",
+      "sourceTemplate": "관찰자가 관찰한 것을 표현할 때 정량적(수치)으로 표현하였는가?",
+      "adaptedForVisual": "지금 관찰한 것을 숫자나 크기로도 표현해볼 수 있을까요?",
+      "triggerCondition": { "objectivityScore": [0, 1] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-C-ii",
+      "aiStage": "G",
+      "category": "관찰방법 > 측정의 유무 (정량화)",
+      "sourceTemplate": "이미 정량적 표현을 사용한 경우, 도구를 활용해 더 정확히 표현하도록 확장",
+      "adaptedForVisual": "숫자로 표현한 점이 좋아요! 도구를 사용하면 더 정확하게 표현할 수 있는 부분이 있을까요? (예: 화면 눈금자로 길이 재보기, 색상 비교하기)",
+      "triggerCondition": { "objectivityScore": [2] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-C-iii",
+      "aiStage": "G",
+      "category": "관찰방법 > 측정의 유무",
+      "sourceTemplate": "정확한 양으로 표현할 수 있는 것은 없을까?",
+      "adaptedForVisual": "그 색이나 크기를 정확한 양(비율, 개수 등)으로 표현할 수 있는 방법은 없을까요?",
+      "triggerCondition": { "objectivityScore": [0, 1, 2] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-C-iv",
+      "aiStage": "G",
+      "category": "관찰방법 > 측정의 유무",
+      "sourceTemplate": "측정(자, 저울, 온도계 등)을 활용해서 관찰한 적이 있는가",
+      "adaptedForVisual": "화면에 있는 눈금자 도구를 활용해서 측정해볼 수 있는 부분이 있을까요?",
+      "triggerCondition": { "note": "화면상의 측정 도구/격자 오버레이 사용을 유도하는 규칙" },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-C-v",
+      "aiStage": "G",
+      "category": "관찰방법 > 측정의 유무",
+      "sourceTemplate": "관찰한 것을 다른 사물과 비교할 때 몇 가지의 물체를 사용해서 비교했는가(자, 동전, 손)",
+      "adaptedForVisual": "주변에 있는 물체와 비교해서 크기나 색을 표현해보세요. 예를 들어 동전이나 손과 비교해볼 수 있을까요?",
+      "triggerCondition": { "objectivityScore": [1, 2] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "1-C-vii",
+      "aiStage": "G",
+      "category": "관찰방법 > 측정의 유무",
+      "sourceTemplate": "관찰 시 자(눈금자, 측정 도구 등)를 사용해서 관찰하였는가?",
+      "adaptedForVisual": "화면의 측정 도구를 사용해서 다시 관찰해보면 어떨까요? (예: 길이 재보기)",
+      "triggerCondition": { "objectivityScore": [1, 2] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "2-A-i",
+      "aiStage": "F",
+      "category": "관찰범위 > 공간적 범위",
+      "sourceTemplate": "전체 대상 관찰을 하였는가",
+      "adaptedForVisual": "이 잎의 전체 모습을 관찰해볼까요?",
+      "triggerCondition": { "spatialScope": ["none"] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "2-A-ii",
+      "aiStage": "G",
+      "category": "관찰범위 > 공간적 범위",
+      "sourceTemplate": "전체 관찰을 하였다면 부분적으로도 관찰해볼 것을 제안",
+      "adaptedForVisual": "전체적인 모습을 잘 관찰했어요! 이번엔 잎맥이나 가장자리처럼 부분을 자세히 관찰해볼까요?",
+      "triggerCondition": { "spatialScope": ["whole"] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "2-C-i",
+      "aiStage": "G",
+      "category": "관찰범위 > 비교관찰",
+      "sourceTemplate": "단일 대상 관찰을 하고 있다면 비교 관찰을 제안",
+      "adaptedForVisual": "다른 낙엽과 비교해서 관찰하면 어떨까요? 사진을 하나 더 선택하면 두 장을 함께 비교할 수 있어요.",
+      "triggerCondition": { "comparisonMode": false, "hasSecondImageAvailable": true },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "2-C-ii",
+      "aiStage": "G",
+      "category": "관찰범위 > 비교관찰",
+      "sourceTemplate": "비교 대상이 없을 때 관찰 심화 질문",
+      "adaptedForVisual": "이 잎에서 가장 눈에 띄는 특징은 무엇인가요? 조금 더 자세히 표현해볼까요?",
+      "triggerCondition": { "comparisonMode": false },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "2-C-compare-active",
+      "aiStage": "G",
+      "category": "관찰범위 > 비교관찰 (2장 동시 관찰)",
+      "sourceTemplate": null,
+      "adaptedForVisual": "두 사진을 비교했을 때 공통점과 차이점을 각각 찾아볼까요?",
+      "triggerCondition": { "comparisonMode": true },
+      "status": "draft_pending_teacher_review"
+    }
+  ]
+}
