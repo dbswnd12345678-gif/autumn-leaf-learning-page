@@ -50,6 +50,11 @@ ANYTHINGLLM_BASE_URL = os.environ.get("ANYTHINGLLM_BASE_URL", "")
 ANYTHINGLLM_API_KEY = os.environ.get("ANYTHINGLLM_API_KEY", "")
 ANYTHINGLLM_WORKSPACE_SLUG = os.environ.get("ANYTHINGLLM_WORKSPACE_SLUG", "")
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
+# Shared secret that the AnythingLLM Agent Flow "API Call" blocks must send
+# (as an "X-Tool-Key" header) when calling our /api/tools/* endpoints. These
+# endpoints are public (Railway needs to reach them from AnythingLLM), so
+# this key keeps randos from calling them directly.
+TOOL_API_KEY = os.environ.get("TOOL_API_KEY", "")
 PORT = int(os.environ.get("PORT", "3000"))
 
 BASE_DIR = Path(__file__).parent
@@ -144,45 +149,20 @@ def sanitize_answer(text: str) -> str:
     return result.strip()
 
 
-def build_context_blocks(history: list[dict], ctx, rule: Optional[dict]) -> str:
-    blocks: list[str] = []
-    if history:
-        last = history[-1]
-        blocks.append(
-            "[과거 관찰 이력] 이 학생은 지금까지 총 {0}번 관찰을 기록했습니다. "
-            "가장 최근 관찰(턴 {1}, {2}): \"{3}\"".format(
-                len(history),
-                last.get("turn_index"),
-                last.get("timestamp"),
-                (last.get("question") or "")[:200],
-            )
-        )
-    else:
-        blocks.append("[과거 관찰 이력] 이 학생의 첫 관찰입니다. 과거 기록이 없습니다.")
-
-    if rule:
-        blocks.append(
-            "[교육학 안내 - 단계 {0}, 규칙 {1}] {2}".format(
-                rule.get("matchedStage"), rule.get("id"), rule.get("adaptedForVisual")
-            )
-        )
-
-    if ctx.comparison_mode:
-        blocks.append("[관찰 모드] 학생이 사진 2장을 선택해서 비교 관찰을 진행하고 있습니다.")
-
-    blocks.append(
-        "[현재 관찰 참고 채점 - 절대적 기준 아님] 객관성 점수 {0}/2, 관찰 다양성 {1}종류, "
-        "과학 용어 사용 {2}회, 공간 범위: {3}".format(
-            ctx.objectivity_score, ctx.variety_count, ctx.term_count, ctx.spatial_scope
-        )
-    )
-    return "\n".join(blocks)
-
-
-def build_agent_message(student_message: str, context_block: str) -> str:
-    # Developer API only triggers Agent Flow (knowledge-graph tool) when the
-    # message is prefixed with "@agent".
-    return f"@agent {context_block}\n\n학생 질문: {student_message}"
+def build_agent_message(student_id: str, student_message: str, comparison_mode: bool) -> str:
+    # The Developer API only enters Agent (tool-calling) mode when the
+    # message is prefixed with "@agent". We deliberately keep the message
+    # itself thin now: the AI Agent is expected to decide for itself
+    # (based on the system prompt + its own tool set) whether to call the
+    # "학생 관찰 이력 조회", "교육학 안내 조회", or "단풍 지식그래프 조회" tools -
+    # we are no longer pre-computing/pre-injecting that content here.
+    # The one thing the agent *cannot* infer on its own is the student's
+    # persistent ID, so we tag it at the front in a fixed, parseable format
+    # so the "학생 관찰 이력 조회"/"교육학 안내 조회" tools can be called with it.
+    tag = f"[학번: {student_id}]"
+    if comparison_mode:
+        tag += " [관찰 모드: 사진 2장 비교관찰]"
+    return f"@agent {tag}\n\n학생 관찰: {student_message}"
 
 
 # ---------------------------------------------------------------------------
@@ -218,11 +198,14 @@ async def chat(req: ChatRequest):
 
     history = db.get_student_history(student_id)
     turn_index = len(history)  # 0-based count of PRIOR turns
-    # Treat the first couple of turns as the student's "first observation"
-    # phase (turn 0 -> free observation/D, turn 1 -> method guidance/E),
-    # then move on to feedback stages F/G from turn 2 onward.
     is_first_observation = turn_index < 2
 
+    # We still score the raw text ourselves (objectivity/variety/term/spatial)
+    # purely so the researcher export keeps these analytics columns - this is
+    # independent of pedagogy guidance now. We no longer match a pedagogy
+    # rule or build a context block here: whether/which rule gets surfaced is
+    # entirely up to the AI Agent's own tool call to "교육학 안내 조회" (see
+    # /api/tools/pedagogy-hint below), not something this server injects.
     ctx = build_context(
         turn_index=turn_index,
         is_first_observation=is_first_observation,
@@ -230,11 +213,8 @@ async def chat(req: ChatRequest):
         comparison_mode=comparison_mode,
         has_second_image_available=len(images) >= 1,
     )
-    previous_rule_id = history[-1].get("pedagogy_rule_id") if history else None
-    rule = match_pedagogy_rule(ctx, previous_rule_id)
 
-    context_block = build_context_blocks(history, ctx, rule)
-    agent_message = build_agent_message(message, context_block)
+    agent_message = build_agent_message(student_id, message, comparison_mode)
 
     target_url = (
         f"{normalize_base_url(ANYTHINGLLM_BASE_URL)}/api/v1/workspace/"
@@ -278,6 +258,15 @@ async def chat(req: ChatRequest):
     data = resp.json()
     answer = sanitize_answer(data.get("textResponse") or "(응답이 비어 있습니다)")
 
+    # Best-effort attribution: if the agent called the "교육학 안내 조회" tool
+    # while handling *this* request, it will have just logged a row in
+    # tool_calls (see /api/tools/pedagogy-hint). We attach that rule id/stage
+    # to this observation row for convenience in the researcher export, but
+    # this is informational only - the authoritative, complete record of
+    # every tool call (including turns where the agent called it 0 or 2+
+    # times) lives in the tool_calls table itself.
+    last_pedagogy_call = db.get_last_tool_call(student_id, "pedagogy_hint")
+
     db.add_observation(
         student_id=student_id,
         session_id=session_id,
@@ -289,11 +278,130 @@ async def chat(req: ChatRequest):
         term_count=ctx.term_count,
         variety_count=ctx.variety_count,
         spatial_scope=ctx.spatial_scope,
-        pedagogy_rule_id=(rule or {}).get("id"),
-        ai_stage=(rule or {}).get("matchedStage"),
+        pedagogy_rule_id=(last_pedagogy_call or {}).get("pedagogy_rule_id"),
+        ai_stage=(last_pedagogy_call or {}).get("ai_stage"),
     )
 
     return {"answer": answer}
+
+
+# ---------------------------------------------------------------------------
+# Tools for the AnythingLLM Agent (called from Agent Flow "API Call" blocks,
+# NOT by our own frontend). The Agent itself decides, per turn, whether to
+# call these - see the workspace system prompt. Every call is logged to
+# db.tool_calls regardless of outcome, so we can measure how often the
+# agent actually consults each source (this is the "true" tool-calling
+# design the pedagogy previously replaced with server-side pre-injection).
+# ---------------------------------------------------------------------------
+
+def require_tool_key(x_tool_key: Optional[str]) -> None:
+    if not TOOL_API_KEY:
+        raise HTTPException(500, "서버에 TOOL_API_KEY 환경변수가 설정되지 않았습니다.")
+    if not x_tool_key or x_tool_key != TOOL_API_KEY:
+        raise HTTPException(403, "tool 인증 키가 올바르지 않습니다.")
+
+
+class PedagogyHintRequest(BaseModel):
+    studentId: str
+    observationText: str
+    comparisonMode: bool = False
+    hasSecondImageAvailable: bool = False
+
+
+@app.post("/api/tools/pedagogy-hint")
+def tool_pedagogy_hint(
+    req: PedagogyHintRequest,
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """Called by the "교육학 안내 조회" Agent Flow. Given the student's current
+    observation sentence, scores it and returns the single most relevant
+    teacher-question hint from pedagogy_db.json (see pedagogy.py). This is
+    the *only* place pedagogy_db.json gets consulted now - it is entirely
+    up to the calling agent whether/when to invoke this tool."""
+    require_tool_key(x_tool_key)
+
+    student_id = sanitize_id(req.studentId)
+    if not student_id:
+        raise HTTPException(400, "studentId가 필요합니다.")
+    observation_text = (req.observationText or "").strip()
+    if not observation_text:
+        raise HTTPException(400, "observationText가 필요합니다.")
+
+    history = db.get_student_history(student_id)
+    turn_index = len(history)
+    is_first_observation = turn_index < 2
+    previous_call = db.get_last_tool_call(student_id, "pedagogy_hint")
+    previous_rule_id = (previous_call or {}).get("pedagogy_rule_id")
+
+    ctx = build_context(
+        turn_index=turn_index,
+        is_first_observation=is_first_observation,
+        text=observation_text,
+        comparison_mode=bool(req.comparisonMode),
+        has_second_image_available=bool(req.hasSecondImageAvailable),
+    )
+    rule = match_pedagogy_rule(ctx, previous_rule_id)
+    hint = (rule or {}).get(
+        "adaptedForVisual",
+        "지금은 추가로 제안할 교육학적 힌트가 없습니다. 학생의 관찰을 있는 그대로 인정하고 격려해주세요.",
+    )
+
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="pedagogy_hint",
+        input_text=observation_text,
+        pedagogy_rule_id=(rule or {}).get("id"),
+        ai_stage=(rule or {}).get("matchedStage"),
+        result_summary=hint,
+    )
+
+    return {
+        "hint": hint,
+        "stage": (rule or {}).get("matchedStage"),
+        "ruleId": (rule or {}).get("id"),
+        "scoring": {
+            "objectivityScore": ctx.objectivity_score,
+            "varietyCount": ctx.variety_count,
+            "termCount": ctx.term_count,
+            "spatialScope": ctx.spatial_scope,
+        },
+    }
+
+
+@app.get("/api/tools/history-lookup")
+def tool_history_lookup(
+    studentId: str = Query(...),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """Called by the "학생 관찰 이력 조회" Agent Flow. Returns a short summary of
+    this student's past observation turns (count + most recent turn), so the
+    agent can decide how to react (first-time vs. repeat, notice progress,
+    compare with earlier observations, etc.)."""
+    require_tool_key(x_tool_key)
+
+    student_id = sanitize_id(studentId)
+    if not student_id:
+        raise HTTPException(400, "studentId가 필요합니다.")
+
+    history = db.get_student_history(student_id)
+    if not history:
+        summary = "이 학생은 과거 관찰 기록이 없습니다. 오늘이 첫 관찰입니다."
+    else:
+        last = history[-1]
+        summary = (
+            f"지금까지 총 {len(history)}번 관찰을 기록했습니다. "
+            f"가장 최근 관찰(턴 {last.get('turn_index')}, {last.get('timestamp')}): "
+            f"\"{(last.get('question') or '')[:200]}\""
+        )
+
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="history_lookup",
+        input_text=None,
+        result_summary=summary,
+    )
+
+    return {"summary": summary, "turnCount": len(history)}
 
 
 # ---------------------------------------------------------------------------

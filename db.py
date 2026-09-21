@@ -42,6 +42,25 @@ CREATE TABLE IF NOT EXISTS observations (
 
 CREATE INDEX IF NOT EXISTS idx_observations_student ON observations(student_id);
 CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id);
+
+-- Every call the AnythingLLM Agent makes to one of our /api/tools/* endpoints
+-- gets logged here, regardless of what it decides to do with the result.
+-- This is how we verify (for the thesis) whether/how often the agent
+-- actually chose to consult pedagogy/history/knowledge-graph tools, instead
+-- of assuming it always does.
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    input_text TEXT,
+    pedagogy_rule_id TEXT,
+    ai_stage TEXT,
+    result_summary TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_calls_student ON tool_calls(student_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_name ON tool_calls(tool_name);
 """
 
 
@@ -183,5 +202,90 @@ def get_all_observations() -> list[dict[str, Any]]:
     try:
         rows = conn.execute("SELECT * FROM observations ORDER BY student_id ASC, id ASC").fetchall()
         return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def log_tool_call(
+    *,
+    student_id: str,
+    tool_name: str,
+    input_text: Optional[str] = None,
+    pedagogy_rule_id: Optional[str] = None,
+    ai_stage: Optional[str] = None,
+    result_summary: Optional[str] = None,
+) -> int:
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO tool_calls (
+                student_id, tool_name, timestamp, input_text,
+                pedagogy_rule_id, ai_stage, result_summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                student_id,
+                tool_name,
+                now_iso(),
+                input_text,
+                pedagogy_rule_id,
+                ai_stage,
+                result_summary,
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_last_tool_call(student_id: str, tool_name: str) -> Optional[dict[str, Any]]:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM tool_calls WHERE student_id = ? AND tool_name = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (student_id, tool_name),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_tool_calls(student_id: str) -> list[dict[str, Any]]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM tool_calls WHERE student_id = ? ORDER BY id ASC",
+            (student_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_all_tool_calls() -> list[dict[str, Any]]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM tool_calls ORDER BY student_id ASC, id ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_tool_call_counts(student_id: str) -> dict[str, int]:
+    """{tool_name: call_count} for this student - used to check compliance
+    (are pedagogy/history tools actually being called every turn?)."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT tool_name, COUNT(*) AS c FROM tool_calls WHERE student_id = ? "
+            "GROUP BY tool_name",
+            (student_id,),
+        ).fetchall()
+        return {r["tool_name"]: int(r["c"]) for r in rows}
     finally:
         conn.close()
