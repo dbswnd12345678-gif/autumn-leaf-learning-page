@@ -192,7 +192,26 @@ def list_students() -> list[dict[str, Any]]:
             ORDER BY student_id ASC
             """
         ).fetchall()
-        return [dict(r) for r in rows]
+        students = [dict(r) for r in rows]
+
+        # Merge in tool-call counts per student per tool, so the admin page
+        # can show (at a glance) whether the agent is actually calling
+        # "학생 관찰 이력 조회" / "교육학 안내 조회" - not just how many chat
+        # turns happened.
+        tool_rows = conn.execute(
+            "SELECT student_id, tool_name, COUNT(*) AS c FROM tool_calls "
+            "GROUP BY student_id, tool_name"
+        ).fetchall()
+        counts_by_student: dict[str, dict[str, int]] = {}
+        for r in tool_rows:
+            counts_by_student.setdefault(r["student_id"], {})[r["tool_name"]] = int(r["c"])
+
+        for s in students:
+            counts = counts_by_student.get(s["student_id"], {})
+            s["history_lookup_calls"] = counts.get("history_lookup", 0)
+            s["pedagogy_hint_calls"] = counts.get("pedagogy_hint", 0)
+
+        return students
     finally:
         conn.close()
 

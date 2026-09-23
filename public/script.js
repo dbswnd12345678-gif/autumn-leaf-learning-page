@@ -117,6 +117,9 @@ function updateImageDisplay() {
   } else {
     imageSlot2.classList.add("hidden");
   }
+  if (typeof window.redrawMeasurements === "function") {
+    window.redrawMeasurements();
+  }
 }
 
 function escapeHtml(text) {

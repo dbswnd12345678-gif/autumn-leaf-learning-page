@@ -90,24 +90,77 @@ body {
   padding: 16px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
   min-width: 280px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.measure-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tool-btn {
+  padding: 6px 10px;
+  border: 1px solid #ddb98a;
+  background: #fff;
+  color: #8a4a12;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-family: inherit;
+}
+
+.tool-btn:hover {
+  background: #fdf1e6;
+}
+
+.tool-btn.active {
+  background: #c0521b;
+  color: #fff;
+  border-color: #c0521b;
+}
+
+.tool-btn[data-tool="protractor"].active {
+  background: #2f7dc0;
+  border-color: #2f7dc0;
+}
+
+.measure-status {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: #6a5a4a;
+  min-height: 1.2em;
+}
+
+.measure-list {
+  flex: 0 0 84px;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 0.86rem;
+  color: #5a4a3a;
+  height: 84px;
+  max-height: 84px;
+  overflow-y: auto;
 }
 
 .main-image-wrap {
-  flex: 1;
+  flex: 1 1 auto;
   display: flex;
   gap: 8px;
-  min-height: 200px;
+  min-height: 0;
 }
 
 .image-slot {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  display: block;
   background: #f4ede3;
   border-radius: 10px;
   overflow: hidden;
-  position: relative;
+  min-width: 0;
+  min-height: 0;
 }
 
 .image-slot.hidden {
@@ -115,9 +168,32 @@ body {
 }
 
 .image-slot img {
-  max-width: 100%;
-  max-height: 100%;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+  object-position: center;
+  pointer-events: none;
+  display: block;
+}
+
+.measure-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+  display: block;
+}
+
+.image-slot.measuring {
+  cursor: crosshair;
+  outline: 2px dashed #c0521b;
+  outline-offset: -2px;
 }
 
 .thumbnail-row {

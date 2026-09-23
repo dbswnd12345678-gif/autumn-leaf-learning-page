@@ -3,6 +3,14 @@ const loadBtn = document.getElementById("load-btn");
 const sessionTbody = document.getElementById("session-tbody");
 const downloadAllXlsxBtn = document.getElementById("download-all-xlsx");
 const downloadAllDocxBtn = document.getElementById("download-all-docx");
+const toolCallsStudentIdInput = document.getElementById("tool-calls-student-id");
+const loadToolCallsBtn = document.getElementById("load-tool-calls-btn");
+const toolCallsTbody = document.getElementById("tool-calls-tbody");
+
+const TOOL_NAME_LABELS = {
+  pedagogy_hint: "교육학 안내 조회",
+  history_lookup: "학생 관찰 이력 조회",
+};
 
 // 페이지를 새로고침해도 매번 키를 다시 입력하지 않도록 이 브라우저(내 PC)에만 저장한다.
 const savedKey = localStorage.getItem("autumn_leaf_admin_key");
@@ -36,13 +44,13 @@ async function loadSessions() {
     const data = await res.json();
     if (!res.ok) {
       showStatus(data.error || "불러오기에 실패했습니다.");
-      sessionTbody.innerHTML = `<tr><td colspan="6" class="empty">불러오기에 실패했습니다.</td></tr>`;
+      sessionTbody.innerHTML = `<tr><td colspan="8" class="empty">불러오기에 실패했습니다.</td></tr>`;
       return;
     }
 
     showStatus("");
     if (!data.students || data.students.length === 0) {
-      sessionTbody.innerHTML = `<tr><td colspan="6" class="empty">아직 저장된 대화 기록이 없습니다.</td></tr>`;
+      sessionTbody.innerHTML = `<tr><td colspan="8" class="empty">아직 저장된 대화 기록이 없습니다.</td></tr>`;
       return;
     }
 
@@ -58,6 +66,12 @@ async function loadSessions() {
 
       const tdSessionCount = document.createElement("td");
       tdSessionCount.textContent = student.session_count;
+
+      const tdHistoryCalls = document.createElement("td");
+      tdHistoryCalls.textContent = student.history_lookup_calls ?? 0;
+
+      const tdPedagogyCalls = document.createElement("td");
+      tdPedagogyCalls.textContent = student.pedagogy_hint_calls ?? 0;
 
       const tdFirst = document.createElement("td");
       tdFirst.textContent = student.first_at || "-";
@@ -81,10 +95,67 @@ async function loadSessions() {
       tr.appendChild(tdId);
       tr.appendChild(tdCount);
       tr.appendChild(tdSessionCount);
+      tr.appendChild(tdHistoryCalls);
+      tr.appendChild(tdPedagogyCalls);
       tr.appendChild(tdFirst);
       tr.appendChild(tdLast);
       tr.appendChild(tdActions);
       sessionTbody.appendChild(tr);
+    });
+  } catch (err) {
+    showStatus("서버에 연결할 수 없습니다.");
+  }
+}
+
+async function loadToolCalls() {
+  const key = getKey();
+  if (!key) {
+    showStatus("관리자 키를 입력해주세요.");
+    return;
+  }
+  localStorage.setItem("autumn_leaf_admin_key", key);
+  const studentId = toolCallsStudentIdInput.value.trim();
+  showStatus("Tool 호출 이력을 불러오는 중...");
+
+  try {
+    const params = new URLSearchParams({ key });
+    if (studentId) params.set("studentId", studentId);
+    const res = await fetch(`/api/admin/tool-calls?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok) {
+      showStatus(data.error || "불러오기에 실패했습니다.");
+      toolCallsTbody.innerHTML = `<tr><td colspan="7" class="empty">불러오기에 실패했습니다.</td></tr>`;
+      return;
+    }
+
+    showStatus("");
+    const calls = data.toolCalls || [];
+    if (calls.length === 0) {
+      toolCallsTbody.innerHTML = `<tr><td colspan="7" class="empty">아직 tool 호출 기록이 없습니다. (에이전트가 아직 tool을 호출하지 않았을 수 있습니다.)</td></tr>`;
+      return;
+    }
+
+    // 최근 호출이 위로 오도록 정렬
+    calls.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+
+    toolCallsTbody.innerHTML = "";
+    calls.forEach((call) => {
+      const tr = document.createElement("tr");
+      const cells = [
+        call.timestamp || "-",
+        call.student_id || "-",
+        TOOL_NAME_LABELS[call.tool_name] || call.tool_name || "-",
+        call.input_text || "-",
+        call.pedagogy_rule_id || "-",
+        call.ai_stage || "-",
+        call.result_summary || "-",
+      ];
+      cells.forEach((text) => {
+        const td = document.createElement("td");
+        td.textContent = text;
+        tr.appendChild(td);
+      });
+      toolCallsTbody.appendChild(tr);
     });
   } catch (err) {
     showStatus("서버에 연결할 수 없습니다.");
@@ -102,6 +173,7 @@ function downloadAll(format) {
 }
 
 loadBtn.addEventListener("click", loadSessions);
+loadToolCallsBtn.addEventListener("click", loadToolCalls);
 downloadAllXlsxBtn.addEventListener("click", () => downloadAll("xlsx"));
 downloadAllDocxBtn.addEventListener("click", () => downloadAll("docx"));
 

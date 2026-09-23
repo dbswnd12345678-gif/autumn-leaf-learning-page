@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>단풍현상 관찰 학습</title>
-<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="style.css?v=2" />
 </head>
 <body>
   <header class="app-header">
@@ -21,18 +21,50 @@
 
   <main class="app-main">
     <section class="image-panel">
+      <div class="measure-toolbar" id="measure-toolbar">
+        <button type="button" class="tool-btn active" id="tool-select" data-tool="select">선택</button>
+        <button type="button" class="tool-btn" id="tool-ruler" data-tool="ruler">자 (두 점)</button>
+        <button type="button" class="tool-btn" id="tool-protractor" data-tool="protractor">각도기 (세 점)</button>
+        <button type="button" class="tool-btn" id="tool-undo">마지막 지우기</button>
+        <button type="button" class="tool-btn" id="tool-clear">모두 지우기</button>
+        <button type="button" class="tool-btn" id="tool-to-chat">채팅에 넣기</button>
+      </div>
+      <p class="measure-status" id="measure-status">도구를 고른 뒤 사진 위를 클릭하세요. 길이는 화면 기준 상대값이고, 각도는 실제 각도(°)입니다.</p>
+      <script type="application/json" id="measure-i18n">
+      {
+        "idle": "도구를 고른 뒤 사진 위를 클릭하세요. 길이는 화면 기준 상대값이고, 각도는 실제 각도(°)입니다.",
+        "rulerStart": "자: 사진에서 첫 번째 점을 클릭하세요. (두 점으로 상대 길이를 잽니다)",
+        "rulerNext": "자: 두 번째 점을 클릭하면 길이가 표시됩니다.",
+        "rulerDone": "길이 측정이 추가되었습니다. 계속 재려면 두 점을 다시 클릭하세요.",
+        "angleStart": "각도기: 각의 한쪽 끝점을 클릭하세요. 두 번째는 꼭짓점, 세 번째는 다른 쪽 끝점입니다.",
+        "angleVertex": "각도기: 꼭짓점(각의 가운데)을 클릭하세요.",
+        "angleNext": "각도기: 다른 쪽 끝점을 클릭하면 각도가 표시됩니다.",
+        "angleDone": "각도 측정이 추가되었습니다. 계속 재려면 세 점을 다시 클릭하세요.",
+        "outside": "사진 안의 잎 위를 클릭하세요. (여백은 측정되지 않습니다)",
+        "undone": "마지막 측정을 지웠습니다.",
+        "cleared": "측정값을 모두 지웠습니다.",
+        "emptyChat": "채팅에 넣을 측정값이 없습니다. 먼저 자나 각도기로 재어 보세요.",
+        "chatHeader": "[관찰 도구]",
+        "chatDone": "측정값을 채팅 입력창에 넣었습니다. 전송하면 AI에게 전달됩니다.",
+        "labelLength": "사진{slot} 자: 상대 길이 {value}",
+        "labelAngle": "사진{slot} 각도기: {value}°"
+      }
+      </script>
       <div class="main-image-wrap" id="main-image-wrap">
         <div class="image-slot" id="image-slot-1">
           <img id="main-image" src="images/leaf1.jpg" alt="선택된 단풍 이미지 1" />
+          <svg class="measure-overlay" id="overlay-1" data-slot="1" preserveAspectRatio="none"></svg>
         </div>
         <div class="image-slot hidden" id="image-slot-2">
           <img id="compare-image" src="" alt="선택된 단풍 이미지 2" />
+          <svg class="measure-overlay" id="overlay-2" data-slot="2" preserveAspectRatio="none"></svg>
         </div>
       </div>
+      <ul class="measure-list" id="measure-list"></ul>
       <div class="thumbnail-row" id="thumbnail-row">
         <!-- 썸네일은 script.js에서 자동 생성 -->
       </div>
-      <p class="hint">※ 이미지를 클릭해서 선택하세요. 사진을 2장 선택하면 두 사진을 나란히 놓고 비교 관찰할 수 있어요.</p>
+      <p class="hint">※ 이미지를 클릭해서 선택하세요. 사진을 2장 선택하면 두 사진을 나란히 놓고 비교 관찰할 수 있어요. 자와 각도기는 실제 cm가 아니라 관찰 연습용 상대 측정입니다.</p>
     </section>
 
     <section class="chat-panel">
@@ -55,5 +87,6 @@
   </main>
 
   <script src="script.js"></script>
+  <script src="measure.js?v=3"></script>
 </body>
 </html>

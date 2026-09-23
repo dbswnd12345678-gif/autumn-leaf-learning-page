@@ -454,6 +454,22 @@ def admin_sessions(
     return {"students": students}
 
 
+@app.get("/api/admin/tool-calls")
+def admin_tool_calls(
+    studentId: Optional[str] = None,
+    key: Optional[str] = None,
+    x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
+):
+    """Raw log of every time the AI Agent called '학생 관찰 이력 조회' or
+    '교육학 안내 조회' (see /api/tools/* in this file). Lets the researcher
+    check whether/how often the agent is actually consulting each source,
+    independent of what ended up in the final answer text."""
+    require_admin_key(key, x_admin_key)
+    student_id = sanitize_id(studentId) if studentId else None
+    calls = db.get_tool_calls(student_id) if student_id else db.get_all_tool_calls()
+    return {"toolCalls": calls}
+
+
 @app.get("/api/admin/export")
 def admin_export(
     format: str = Query("xlsx"),
@@ -466,16 +482,17 @@ def admin_export(
         raise HTTPException(404, "저장된 대화 기록이 없습니다.")
 
     rows_by_student = {s["student_id"]: db.get_student_history(s["student_id"]) for s in students}
+    tool_calls = db.get_all_tool_calls()
     fmt = format.lower()
     if fmt == "docx":
-        buf = reports.build_admin_docx(students, rows_by_student)
+        buf = reports.build_admin_docx(students, rows_by_student, tool_calls)
         return Response(
             content=buf,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={"Content-Disposition": 'attachment; filename="autumn-leaf-chat-all-students.docx"'},
         )
 
-    buf = reports.build_admin_xlsx(students, rows_by_student)
+    buf = reports.build_admin_xlsx(students, rows_by_student, tool_calls)
     return Response(
         content=buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

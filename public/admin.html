@@ -29,19 +29,53 @@
 
     <section>
       <h2>학생별 목록</h2>
+      <p class="hint">
+        "이력조회 호출"·"교육학조회 호출"은 AI 에이전트가 실제로 그 tool을 부른 횟수입니다.
+        대화 턴 수보다 훨씬 적다면, 에이전트가 그 tool을 자주 참고하지 않고 있다는 뜻입니다.
+      </p>
       <table id="session-table">
         <thead>
           <tr>
             <th>학번</th>
             <th>대화 턴 수</th>
             <th>참여 세션(차시) 수</th>
+            <th>이력조회 호출</th>
+            <th>교육학조회 호출</th>
             <th>첫 대화</th>
             <th>마지막 대화</th>
             <th>개별 다운로드</th>
           </tr>
         </thead>
         <tbody id="session-tbody">
-          <tr><td colspan="6" class="empty">키를 입력하고 "학생 목록 불러오기"를 눌러주세요.</td></tr>
+          <tr><td colspan="8" class="empty">키를 입력하고 "학생 목록 불러오기"를 눌러주세요.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Tool 호출 이력 (교육학 DB 참조 여부 확인)</h2>
+      <p class="hint">
+        AI 에이전트가 "학생 관찰 이력 조회" / "교육학 안내 조회" tool을 호출할 때마다 남는 원본 기록입니다.
+        학번을 입력하면 해당 학생만, 비워두면 전체 학생 기록을 볼 수 있습니다.
+      </p>
+      <div class="btn-row">
+        <input type="text" id="tool-calls-student-id" placeholder="학번 (비워두면 전체)" />
+        <button type="button" id="load-tool-calls-btn">Tool 호출 이력 불러오기</button>
+      </div>
+      <table id="tool-calls-table">
+        <thead>
+          <tr>
+            <th>시각(UTC)</th>
+            <th>학번</th>
+            <th>tool</th>
+            <th>입력(관찰문 등)</th>
+            <th>매칭 규칙 ID</th>
+            <th>AI 단계</th>
+            <th>반환된 힌트/요약</th>
+          </tr>
+        </thead>
+        <tbody id="tool-calls-tbody">
+          <tr><td colspan="7" class="empty">위에서 "Tool 호출 이력 불러오기"를 눌러주세요.</td></tr>
         </tbody>
       </table>
     </section>
