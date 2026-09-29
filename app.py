@@ -1,19 +1,19 @@
 """
-FastAPI backend for the autumn-leaf observation learning page.
+단풍 관찰 학습 페이지의 FastAPI 서버.
 
-Replaces the previous Node.js/Express server (see legacy_node/server.js).
-Key differences from the legacy version:
-  - PhenoVisionL integration has been removed entirely (leaf classification
-    is no longer part of the pipeline).
-  - Conversation history is now keyed by a persistent studentId (not just
-    the browser sessionId), stored in SQLite (see db.py) so a student's
-    history survives across the 3 separate class sessions.
-  - Before calling AnythingLLM, the server looks up the student's past
-    observations and matches a pedagogy rule (see pedagogy.py /
-    pedagogy_db.json), then injects both as context blocks into the
-    message sent to the AnythingLLM Agent Flow.
-  - Up to 2 images can be attached per turn to support comparison
-    observation (관찰범위 > 비교관찰).
+이전 Node.js/Express 서버(legacy_node/server.js)를 대체한다.
+
+하는 일:
+  - public/ 아래 학습 페이지(HTML/CSS/JS, 단풍 사진)를 제공한다.
+  - /api/chat에서 학생 관찰문을 AnythingLLM 에이전트로 보낸다.
+    메시지에는 @agent와 studentId·comparisonMode 태그만 넣고,
+    교육학 안내·이력 조회는 에이전트가 도구로 직접 호출한다.
+  - /api/tools/*는 AnythingLLM Agent Flow가 부르는 도구 주소다.
+    호출마다 db.py의 tool_calls에 기록한다.
+  - 대화는 브라우저 sessionId가 아니라 학번(studentId) 기준으로
+    SQLite에 쌓이므로, 수업이 나뉘어도 이력이 이어진다.
+  - 사진은 한 턴에 최대 2장까지 붙여 비교 관찰을 지원한다.
+  - 잎 종류를 맞히는 PhenoVisionL 연동은 쓰지 않는다.
 """
 
 from __future__ import annotations
@@ -55,10 +55,9 @@ ANYTHINGLLM_BASE_URL = os.environ.get("ANYTHINGLLM_BASE_URL", "")
 ANYTHINGLLM_API_KEY = os.environ.get("ANYTHINGLLM_API_KEY", "")
 ANYTHINGLLM_WORKSPACE_SLUG = os.environ.get("ANYTHINGLLM_WORKSPACE_SLUG", "")
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
-# Shared secret that the AnythingLLM Agent Flow "API Call" blocks must send
-# (as an "X-Tool-Key" header) when calling our /api/tools/* endpoints. These
-# endpoints are public (Railway needs to reach them from AnythingLLM), so
-# this key keeps randos from calling them directly.
+# AnythingLLM Agent Flow의 "API Call"이 /api/tools/*를 호출할 때
+# X-Tool-Key 헤더로 보내는 비밀 키. 이 주소는 Railway에서 AnythingLLM이
+# 닿아야 해서 공개되어 있으므로, 키가 없으면 누구나 직접 호출할 수 있다.
 TOOL_API_KEY = os.environ.get("TOOL_API_KEY", "")
 PORT = int(os.environ.get("PORT", "3000"))
 
@@ -98,7 +97,7 @@ async def unhandled_exception_handler(request, exc: Exception):
 
 
 # ---------------------------------------------------------------------------
-# helpers
+# 도우미 함수
 # ---------------------------------------------------------------------------
 
 def normalize_base_url(raw_url: str) -> str:
@@ -116,7 +115,7 @@ def mime_from_ext(filename: str) -> str:
 
 
 def load_image_attachment(image_name: str) -> Optional[dict]:
-    """Whitelist-only image loading to prevent path traversal."""
+    """허용된 파일 이름만 읽어, 경로 조작으로 다른 파일을 열지 못하게 한다."""
     if not image_name or image_name not in ALLOWED_IMAGES:
         return None
     image_path = IMAGES_DIR / image_name
@@ -155,21 +154,12 @@ def sanitize_answer(text: str) -> str:
 
 
 def build_agent_message(student_id: str, student_message: str, comparison_mode: bool) -> str:
-    # Developer API는 메시지 앞에 "@agent"가 있어야 도구를 호출한다.
-    # 학번은 에이전트가 스스로 알 수 없으므로 고정 형식으로 붙인다.
-    tag = f"[학번: {student_id}]"
+    # AnythingLLM은 메시지 앞에 "@agent"가 있어야 도구를 호출한다.
+    # 도구 파라미터 이름과 같은 태그만 넣고, 본문은 학생 관찰문만 보낸다.
+    tag = f"[studentId: {student_id}]"
     if comparison_mode:
-        tag += " [관찰 모드: 사진 2장 비교관찰]"
-    return (
-        f"@agent {tag}\n\n"
-        "이번 학생 관찰(답변의 중심으로 삼으세요):\n"
-        f"{student_message}\n\n"
-        "답변을 쓰기 전에 반드시 아래 도구를 둘 다 호출하세요.\n"
-        f"1) 학생 관찰 이력 조회 — studentId는 {student_id}\n"
-        f"2) 교육학 안내 조회 — studentId는 {student_id}, "
-        "observationText는 위의 이번 학생 관찰 원문\n"
-        "단풍 지식그래프 조회는 사용하지 마세요."
-    )
+        tag += " [comparisonMode: true]"
+    return f"@agent {tag}\n\n{student_message}"
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +194,7 @@ async def chat(req: ChatRequest):
     comparison_mode = bool(req.comparisonMode) and len(images) >= 2
 
     history = db.get_student_history(student_id)
-    turn_index = len(history)  # 0-based count of PRIOR turns
+    turn_index = len(history)  # 이미 저장된 턴 수. 이번 턴은 아직 넣지 않음.
     is_first_observation = turn_index < 2
 
     # 연구 기록용 채점. 교육학 발문 매칭은 /api/tools/pedagogy-hint가
@@ -261,13 +251,11 @@ async def chat(req: ChatRequest):
     data = resp.json()
     answer = sanitize_answer(data.get("textResponse") or "(응답이 비어 있습니다)")
 
-    # Best-effort attribution: if the agent called the "교육학 안내 조회" tool
-    # while handling *this* request, it will have just logged a row in
-    # tool_calls (see /api/tools/pedagogy-hint). We attach that rule id/stage
-    # to this observation row for convenience in the researcher export, but
-    # this is informational only - the authoritative, complete record of
-    # every tool call (including turns where the agent called it 0 or 2+
-    # times) lives in the tool_calls table itself.
+    # 이번 요청 중에 에이전트가 '교육학 안내 조회'를 불렀다면
+    # tool_calls에 방금 한 줄이 남는다. 연구자 내보내기 편의를 위해
+    # 그 규칙 id·단계를 이번 관찰 행에 붙인다.
+    # 참고용일 뿐이고, 호출을 안 했거나 여러 번 한 경우까지 포함한
+    # 정확한 기록은 tool_calls 표 자체에 있다.
     last_pedagogy_call = db.get_last_tool_call(student_id, "pedagogy_hint")
 
     db.add_observation(
@@ -289,8 +277,8 @@ async def chat(req: ChatRequest):
 
 
 # ---------------------------------------------------------------------------
-# Tools for the AnythingLLM Agent (called from Agent Flow "API Call" blocks).
-# 워크스페이스 시스템 프롬프트와 아래 메시지 지시로 매 턴
+# AnythingLLM 에이전트 도구 (Agent Flow의 "API Call"이 호출).
+# 워크스페이스 시스템 프롬프트로 매 턴
 # "학생 관찰 이력 조회"와 "교육학 안내 조회"를 반드시 호출한다.
 # 모든 호출은 db.tool_calls에 기록된다.
 # ---------------------------------------------------------------------------
@@ -314,8 +302,8 @@ def tool_pedagogy_hint(
     req: PedagogyHintRequest,
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """Called by the "교육학 안내 조회" Agent Flow. 이번 관찰문과 이력 요약으로
-    pedagogy_db.json에서 발문 힌트 하나를 고른다."""
+    """AnythingLLM의 '교육학 안내 조회' 흐름이 호출한다.
+    이번 관찰문과 이력 요약으로 pedagogy_db.json에서 발문 힌트 하나를 고른다."""
     require_tool_key(x_tool_key)
 
     student_id = sanitize_id(req.studentId)
@@ -381,8 +369,9 @@ def tool_history_lookup(
     studentId: str = Query(...),
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """Called by the "학생 관찰 이력 조회" Agent Flow. 이 학생의 과거 관찰 요약을 반환한다.
-    이력은 이미 한 관찰을 빼는 필터로만 쓰고, 답변의 중심은 이번 관찰문이다."""
+    """AnythingLLM의 '학생 관찰 이력 조회' 흐름이 호출한다.
+    이 학생의 과거 관찰 요약을 돌려준다. 이력은 이미 한 관찰을 빼는 필터로만 쓰고,
+    답변의 중심은 이번 관찰문이다."""
     require_tool_key(x_tool_key)
 
     student_id = sanitize_id(studentId)
@@ -411,7 +400,7 @@ def tool_history_lookup(
 
 
 # ---------------------------------------------------------------------------
-# student-facing history export
+# 학생용 관찰 기록 내보내기
 # ---------------------------------------------------------------------------
 
 @app.get("/api/history/{student_id}/export")
@@ -439,7 +428,7 @@ def export_history(student_id: str, format: str = Query("xlsx")):
 
 
 # ---------------------------------------------------------------------------
-# admin (researcher) endpoints - require ?key=ADMIN_KEY or X-Admin-Key header
+# 연구자용 관리 주소. ?key=ADMIN_KEY 또는 X-Admin-Key 헤더가 필요하다.
 # ---------------------------------------------------------------------------
 
 def require_admin_key(key: Optional[str], x_admin_key: Optional[str]) -> None:
@@ -466,10 +455,8 @@ def admin_tool_calls(
     key: Optional[str] = None,
     x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
 ):
-    """Raw log of every time the AI Agent called '학생 관찰 이력 조회' or
-    '교육학 안내 조회' (see /api/tools/* in this file). Lets the researcher
-    check whether/how often the agent is actually consulting each source,
-    independent of what ended up in the final answer text."""
+    """에이전트가 '학생 관찰 이력 조회'와 '교육학 안내 조회'를 부른 원본 기록이다.
+    최종 답변 문장과 별개로, 도구를 실제로 얼마나 썼는지 연구자가 확인할 수 있다."""
     require_admin_key(key, x_admin_key)
     student_id = sanitize_id(studentId) if studentId else None
     calls = db.get_tool_calls(student_id) if student_id else db.get_all_tool_calls()
@@ -511,7 +498,7 @@ def health():
     return {"ok": True}
 
 
-# Static frontend (public/) mounted last so /api/* routes above take priority.
+# 학습 페이지(public/)는 마지막에 연결한다. 그래야 /api/*가 먼저 처리된다.
 app.mount("/", StaticFiles(directory=str(PUBLIC_DIR), html=True), name="public")
 
 
