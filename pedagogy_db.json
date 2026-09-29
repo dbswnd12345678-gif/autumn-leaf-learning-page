@@ -1,23 +1,33 @@
 {
   "_meta": {
-    "설명": "AI Agent가 담당하는 관찰학습 단계(D~G)에 맞춘 교사 발문(표2) 재구성 규칙 목록. 관찰력 지수 범주(관찰방법 다양성, 객관성/정량화, 관찰범위)를 기준으로 aiStage를 매칭한다.",
+    "설명": "AI Agent가 담당하는 관찰학습 단계(D~G)에 맞춘 교사 발문(표2) 재구성 규칙 목록. 학습 페이지는 정지 사진을 눈으로 관찰하는 상황이므로, 그 제약에 해당하는 발문만 남긴다.",
+    "페이지 제약": {
+      "감각기관의 사용": "시각만 가능. 청각·촉각·후각·미각을 쓰라는 발문은 넣지 않음.",
+      "조작의 유무": "조작 관찰 불가. 주어진 사진을 있는 그대로 보는 단순관찰만 안내.",
+      "측정의 유무": "정량관찰은 도구에만 한정하지 않음. 개수 세기, 숫자·비율로 표현하기, 화면의 자(두 점)·각도기(세 점) 사용을 모두 포함. 온도계·저울·돋보기·메스실린더 등 이 페이지에 없는 도구는 안내하지 않음.",
+      "전체성": "표2 발문(전체, 부분, 전체-부분)을 유지.",
+      "시간 의존성": "정지 사진 관찰이므로 시간 흐름·순간 포착 발문은 제외.",
+      "비교관찰": "사진 2장 선택 비교, 다른 사물·경험에 비유하는 발문은 유지."
+    },
     "제외 항목": [
-      "조작관찰(H) - 현재 기술적으로 구현이 어려워 제외함",
-      "1-B(측정 여부) 중 시간 요소 - 시간 기반 관찰은 제외함",
-      "2-B(시간적 변화) - 시간에 따른 변화 관찰은 제외함"
+      "감각기관 중 시각 이외(청각, 촉각, 후각, 미각) - 화면 관찰에서는 해당 없음",
+      "조작관찰 - 대상에 조작을 가하거나 조건을 바꿔 보는 관찰은 불가능",
+      "이 페이지에 없는 측정 도구(온도계, 저울, 돋보기, 메스실린더 등). 정량관찰 자체는 개수·숫자 표현을 포함하므로 도구 사용에 한정하지 않음",
+      "시간 의존성 - 시간에 따른 변화, 시간독립적/시간의존적 관찰은 해당 없음"
     ],
-    "비교관찰 관련 안내": "비교관찰은 학생이 사진 2장을 함께 선택하는 방식으로 구현한다. 사진 1장만 선택된 상태에서는 비교관찰 규칙(2-C-i, 2-C-ii)이, 2장이 선택된 상태에서는 2-C-compare-active 규칙이 우선 적용된다.",
+    "비교관찰 관련 안내": "비교관찰은 학생이 사진 2장을 함께 선택하는 방식으로 구현한다. 사진 1장만 선택된 상태에서는 비교-다른잎·비교-비유 규칙이, 2장이 선택된 상태에서는 비교-두장 규칙이 우선 적용된다.",
+    "id 설명": "규칙 이름을 한글로 적는다. 예: 자유관찰, 정량-숫자로, 비교-두장.",
     "status 필드 설명": "draft_pending_teacher_review = 표2 발문을 AI Agent용 문장으로 초안 작성한 상태. 교사 전문가 검토 후 approved로 값을 변경해야 실제 서비스에 반영하는 것을 권장한다.",
     "aiStage 설명": {
       "D": "자유관찰 - 관찰 방법 안내 없이 AI가 개방형 질문으로 관찰을 유도",
-      "E": "관찰방법안내 - 감각기관/도구 등 관찰 방법에 대한 기본 안내",
+      "E": "관찰방법안내 - 눈으로 자세히, 있는 그대로 보기 등 관찰 방법에 대한 기본 안내",
       "F": "단순관찰 - 학생의 1차 관찰 결과에 대한 피드백 및 보강 유도",
-      "G": "관찰방법추가안내 - 객관성/정량화, 관찰범위 확장을 위한 심화 안내"
+      "G": "관찰방법추가안내 - 정량화(개수·숫자·자·각도기 등), 전체-부분, 비교관찰 확장을 위한 심화 안내"
     }
   },
   "rules": [
     {
-      "id": "D-open-1",
+      "id": "자유관찰",
       "aiStage": "D",
       "category": "자유관찰 (개방형 질문)",
       "sourceTemplate": null,
@@ -26,136 +36,154 @@
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "1-A-i",
+      "id": "시각-자세히",
       "aiStage": "E",
-      "category": "관찰방법 > 감각기관 활용",
-      "sourceTemplate": "무엇으로 관찰하였는가?",
-      "adaptedForVisual": "눈, 코, 손 등 여러 감각기관을 사용해서 관찰해볼까요?",
+      "category": "관찰방법 > 감각기관의 사용 (시각)",
+      "sourceTemplate": "현상을 자세히 관찰해보자. / ~을 자세히 관찰해 보자.",
+      "adaptedForVisual": "이 잎을 눈으로 자세히 관찰해볼까요? 보이는 것을 있는 그대로 적어보세요.",
       "triggerCondition": { "isFirstObservation": true },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "1-A-ii",
+      "id": "시각-모두 기록",
       "aiStage": "E",
-      "category": "관찰방법 > 감각기관 활용",
-      "sourceTemplate": "~로 관찰하였는가?",
-      "adaptedForVisual": "다른 감각으로도 관찰할 수 있는지 함께 살펴볼까요?",
+      "category": "관찰방법 > 감각기관의 사용 (시각)",
+      "sourceTemplate": "가능한 다양하게 관찰하고 관찰 사실들을 모두 기록해보자.",
+      "adaptedForVisual": "이번 메시지에서는 하나만 더 이어서 적어볼까요? 예를 들어 방금 말한 색이나 모양을, 잎맥이나 가장자리 중 한 가지로만 조금 더 구체적으로 적어보세요.",
       "triggerCondition": { "isFirstObservation": true },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "1-A-iii",
+      "id": "시각-다양하게",
       "aiStage": "F",
-      "category": "관찰방법 > 감각기관 활용",
-      "sourceTemplate": "관찰한 것을 정리해서 몇 가지의 감각으로 관찰했는지 말해보자",
-      "adaptedForVisual": "색, 모양, 냄새, 촉감 등 몇 가지 감각으로 관찰했는지 정리해볼까요?",
+      "category": "관찰방법 > 감각기관의 사용 (시각)",
+      "sourceTemplate": "가능한 다양하게 관찰하고 관찰 사실들을 모두 기록해보자.",
+      "adaptedForVisual": "눈으로 본 것을 더 다양하게 정리해볼까요? 색과 모양 외에 잎맥이나 가장자리도 보이는지 살펴보세요.",
       "triggerCondition": { "varietyCount": [1] },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "1-A-iv",
-      "aiStage": "F",
-      "category": "관찰방법 > 감각기관 활용",
-      "sourceTemplate": "관찰한 대상에서 아직 사용하지 않은 감각이 있는지 확인해보자",
-      "adaptedForVisual": "아직 사용하지 않은 감각이 있다면 활용해보세요. 예를 들어 만져보거나 향을 맡아볼 수 있을까요?",
-      "triggerCondition": { "note": "관찰유형이 시각 단독일 때 다른 감각 사용을 유도하는 규칙 (varietyCount==1과 함께 참고)" },
+      "id": "단순관찰",
+      "aiStage": "E",
+      "category": "관찰방법 > 조작의 유무 (단순관찰)",
+      "sourceTemplate": "주어진 관찰대상이나 현상을 있는 그대로 관찰해보자.",
+      "adaptedForVisual": "사진을 조작하지 말고, 주어진 모습 그대로 관찰해볼까요? 눈에 보이는 사실을 있는 그대로 적어보세요.",
+      "triggerCondition": { "isFirstObservation": true },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "1-C-i",
+      "id": "정성관찰",
       "aiStage": "F",
-      "category": "관찰방법 > 측정의 유무 (정량화)",
-      "sourceTemplate": "관찰자가 관찰한 것을 표현할 때 정량적(수치)으로 표현하였는가?",
-      "adaptedForVisual": "지금 관찰한 것을 숫자나 크기로도 표현해볼 수 있을까요?",
+      "category": "관찰방법 > 측정의 유무 (정성관찰)",
+      "sourceTemplate": "관찰대상을 과일의 수나 측정이 포함하지 않은 관찰(정성적)을 하고 기록해보자.",
+      "adaptedForVisual": "수를 세거나 재기 전에, 색·모양처럼 보이는 그대로의 특징을 먼저 자세히 기록해볼까요?",
+      "triggerCondition": { "objectivityScore": [0] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "정량-숫자로",
+      "aiStage": "F",
+      "category": "관찰방법 > 측정의 유무 (정량관찰)",
+      "sourceTemplate": "관찰대상을 수나 측정을 포함한 관찰(정량적)을 하고 기록해보자.",
+      "adaptedForVisual": "지금 관찰한 것을 숫자로도 표현해볼 수 있을까요? 갈래·잎맥·점의 개수를 세거나, 화면의 자·각도기로 상대 길이나 각도를 재는 방법도 있어요.",
       "triggerCondition": { "objectivityScore": [0, 1] },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "1-C-ii",
+      "id": "정량-더 정확하게",
       "aiStage": "G",
-      "category": "관찰방법 > 측정의 유무 (정량화)",
-      "sourceTemplate": "이미 정량적 표현을 사용한 경우, 도구를 활용해 더 정확히 표현하도록 확장",
-      "adaptedForVisual": "숫자로 표현한 점이 좋아요! 도구를 사용하면 더 정확하게 표현할 수 있는 부분이 있을까요? (예: 화면 눈금자로 길이 재보기, 색상 비교하기)",
+      "category": "관찰방법 > 측정의 유무 (정량 확장)",
+      "sourceTemplate": "이미 정량적 표현을 사용한 경우, 개수나 도구를 활용해 더 정확히 표현하도록 확장",
+      "adaptedForVisual": "숫자로 표현한 점이 좋아요! 아직 세지 않은 개수가 있는지 보거나, 화면의 자·각도기로 길이나 각도를 재면 더 정확하게 비교할 수 있어요.",
       "triggerCondition": { "objectivityScore": [2] },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "1-C-iii",
+      "id": "정량-정확한 양",
       "aiStage": "G",
-      "category": "관찰방법 > 측정의 유무",
+      "category": "관찰방법 > 측정의 유무 (정량관찰)",
       "sourceTemplate": "정확한 양으로 표현할 수 있는 것은 없을까?",
-      "adaptedForVisual": "그 색이나 크기를 정확한 양(비율, 개수 등)으로 표현할 수 있는 방법은 없을까요?",
-      "triggerCondition": { "objectivityScore": [0, 1, 2] },
+      "adaptedForVisual": "‘많다’, ‘크다’처럼 애매한 말 대신, 정확한 양으로 바꿔볼까요? 갈래가 몇 개인지, 잎의 얼마만큼이 붉은지처럼 개수나 비율로 적어보세요. (자와 각도기는 아직 쓰지 않아도 됩니다.)",
+      "triggerCondition": { "objectivityScore": [0, 1] },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "1-C-iv",
+      "id": "정량-자, 각도기",
       "aiStage": "G",
-      "category": "관찰방법 > 측정의 유무",
-      "sourceTemplate": "측정(자, 저울, 온도계 등)을 활용해서 관찰한 적이 있는가",
-      "adaptedForVisual": "화면에 있는 눈금자 도구를 활용해서 측정해볼 수 있는 부분이 있을까요?",
-      "triggerCondition": { "note": "화면상의 측정 도구/격자 오버레이 사용을 유도하는 규칙" },
-      "status": "draft_pending_teacher_review"
-    },
-    {
-      "id": "1-C-v",
-      "aiStage": "G",
-      "category": "관찰방법 > 측정의 유무",
-      "sourceTemplate": "관찰한 것을 다른 사물과 비교할 때 몇 가지의 물체를 사용해서 비교했는가(자, 동전, 손)",
-      "adaptedForVisual": "주변에 있는 물체와 비교해서 크기나 색을 표현해보세요. 예를 들어 동전이나 손과 비교해볼 수 있을까요?",
+      "category": "관찰방법 > 측정의 유무 (자·각도기)",
+      "sourceTemplate": "도구(자, 온도계, 메스실린더, 돋보기 등)를 이용해서 관찰할 것은 없을까? / 측정도구를 이용하여 관찰해보자.",
+      "adaptedForVisual": "개수로 세기 어려운 것은 화면의 자로 상대 길이를, 각도기로 각도를 재볼까요? 이 페이지에서 쓸 수 있는 측정 도구는 자와 각도기입니다.",
       "triggerCondition": { "objectivityScore": [1, 2] },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "1-C-vii",
+      "id": "정량-세고 재기",
       "aiStage": "G",
-      "category": "관찰방법 > 측정의 유무",
+      "category": "관찰방법 > 측정의 유무 (세기와 재기 연결)",
       "sourceTemplate": "관찰 시 자(눈금자, 측정 도구 등)를 사용해서 관찰하였는가?",
-      "adaptedForVisual": "화면의 측정 도구를 사용해서 다시 관찰해보면 어떨까요? (예: 길이 재보기)",
+      "adaptedForVisual": "세는 것과 재는 것을 나눠 볼까요? 개수만 적었다면 길이나 각도를 재보고, 이미 쟀다면 갈래·잎맥처럼 셀 수 있는 것도 숫자로 적어보세요.",
       "triggerCondition": { "objectivityScore": [1, 2] },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "2-A-i",
+      "id": "정량-값 비교",
+      "aiStage": "G",
+      "category": "관찰방법 > 측정의 유무 (상대 비교)",
+      "sourceTemplate": "다른 것(물건, 우리 몸의 신체)과 비교하여 관찰해보면 어떨까?",
+      "adaptedForVisual": "개수나 잰 값을 서로 비교해보면 어떨까요? 같은 잎에서도 갈래 수, 상대 길이, 각도가 구간마다 다른지 살펴보세요.",
+      "triggerCondition": { "objectivityScore": [1, 2] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "전체관찰",
       "aiStage": "F",
-      "category": "관찰범위 > 공간적 범위",
-      "sourceTemplate": "전체 대상 관찰을 하였는가",
+      "category": "관찰대상 > 전체성 (전체관찰)",
+      "sourceTemplate": "관찰 대상 전체를 관찰 해보자.",
       "adaptedForVisual": "이 잎의 전체 모습을 관찰해볼까요?",
       "triggerCondition": { "spatialScope": ["none"] },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "2-A-ii",
+      "id": "부분관찰",
       "aiStage": "G",
-      "category": "관찰범위 > 공간적 범위",
-      "sourceTemplate": "전체 관찰을 하였다면 부분적으로도 관찰해볼 것을 제안",
-      "adaptedForVisual": "전체적인 모습을 잘 관찰했어요! 이번엔 잎맥이나 가장자리처럼 부분을 자세히 관찰해볼까요?",
+      "category": "관찰대상 > 전체성 (부분관찰)",
+      "sourceTemplate": "관찰 대상의 부분을 세밀하게 관찰하여 기록해보자.",
+      "adaptedForVisual": "전체적인 모습을 잘 관찰했어요! 이번엔 잎맥이나 가장자리처럼 부분을 세밀하게 관찰하여 기록해볼까요?",
       "triggerCondition": { "spatialScope": ["whole"] },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "2-C-i",
+      "id": "전체부분관찰",
       "aiStage": "G",
-      "category": "관찰범위 > 비교관찰",
-      "sourceTemplate": "단일 대상 관찰을 하고 있다면 비교 관찰을 제안",
-      "adaptedForVisual": "다른 낙엽과 비교해서 관찰하면 어떨까요? 사진을 하나 더 선택하면 두 장을 함께 비교할 수 있어요.",
+      "category": "관찰대상 > 전체성 (전체-부분관찰)",
+      "sourceTemplate": "전체적인 모습을 관찰하고 부분의 모습을 세밀하게 관찰해보자.",
+      "adaptedForVisual": "부분도 잘 보았어요. 전체적인 모습과 부분을 함께 이어서 관찰해볼까요?",
+      "triggerCondition": { "spatialScope": ["part"] },
+      "status": "draft_pending_teacher_review"
+    },
+    {
+      "id": "비교-다른 잎",
+      "aiStage": "G",
+      "category": "관찰대상 > 비교관찰",
+      "sourceTemplate": "같은 종류의 다양한 것과 비교하여 관찰하여 보자.",
+      "adaptedForVisual": "같은 종류의 다른 낙엽과 비교해서 관찰해 볼까요? 사진을 하나 더 선택하면 두 장을 함께 비교할 수 있어요.",
       "triggerCondition": { "comparisonMode": false, "hasSecondImageAvailable": true },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "2-C-ii",
+      "id": "비교-비유",
       "aiStage": "G",
-      "category": "관찰범위 > 비교관찰",
-      "sourceTemplate": "비교 대상이 없을 때 관찰 심화 질문",
-      "adaptedForVisual": "이 잎에서 가장 눈에 띄는 특징은 무엇인가요? 조금 더 자세히 표현해볼까요?",
+      "category": "관찰대상 > 비교관찰 (비유)",
+      "sourceTemplate": "다른 사물에 비유하여 관찰해보자. / 자신의 경험에 비유하여 관찰해보자.",
+      "adaptedForVisual": "이 잎을 다른 사물에 비유하거나, 예전에 본 단풍 같은 자신의 경험과 비교해서 관찰해보면 어떨까요?",
       "triggerCondition": { "comparisonMode": false },
       "status": "draft_pending_teacher_review"
     },
     {
-      "id": "2-C-compare-active",
+      "id": "비교-두 장",
       "aiStage": "G",
-      "category": "관찰범위 > 비교관찰 (2장 동시 관찰)",
-      "sourceTemplate": null,
+      "category": "관찰대상 > 비교관찰 (2장 동시 관찰)",
+      "sourceTemplate": "같은 종류의 다양한 것과 비교하여 관찰하여 보자.",
       "adaptedForVisual": "두 사진을 비교했을 때 공통점과 차이점을 각각 찾아볼까요?",
       "triggerCondition": { "comparisonMode": true },
       "status": "draft_pending_teacher_review"

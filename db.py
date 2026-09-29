@@ -259,6 +259,22 @@ def log_tool_call(
         conn.close()
 
 
+def get_recent_pedagogy_rule_ids(student_id: str, limit: int = 3) -> list[str]:
+    """최근 교육학 안내에서 고른 규칙 id. 같은 발문 반복을 줄일 때 쓴다."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT pedagogy_rule_id FROM tool_calls "
+            "WHERE student_id = ? AND tool_name = 'pedagogy_hint' "
+            "AND pedagogy_rule_id IS NOT NULL AND pedagogy_rule_id != '' "
+            "ORDER BY id DESC LIMIT ?",
+            (student_id, limit),
+        ).fetchall()
+        return [r["pedagogy_rule_id"] for r in rows]
+    finally:
+        conn.close()
+
+
 def get_last_tool_call(student_id: str, tool_name: str) -> Optional[dict[str, Any]]:
     conn = get_connection()
     try:
