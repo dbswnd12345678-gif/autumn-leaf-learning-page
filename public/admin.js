@@ -172,6 +172,17 @@ function downloadAll(format) {
   window.location.href = `/api/admin/export?key=${encodeURIComponent(key)}&format=${format}`;
 }
 
+function downloadDb() {
+  const key = getKey();
+  if (!key) {
+    showStatus("관리자 키를 입력해주세요.");
+    return;
+  }
+  localStorage.setItem("autumn_leaf_admin_key", key);
+  window.location.href = `/api/admin/db-backup?key=${encodeURIComponent(key)}`;
+}
+
+document.getElementById("download-db").addEventListener("click", downloadDb);
 loadBtn.addEventListener("click", loadSessions);
 loadToolCallsBtn.addEventListener("click", loadToolCalls);
 downloadAllXlsxBtn.addEventListener("click", () => downloadAll("xlsx"));
