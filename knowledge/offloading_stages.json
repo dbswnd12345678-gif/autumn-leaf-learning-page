@@ -1,0 +1,76 @@
+{
+  "version": "0.1-prototype",
+  "description": "인지적 오프로딩 진단(탭 2) 코드북. 학생의 요청 유형, AI 답변이 제출 문장에 반영된 정도, 요청 횟수를 보고 오프로딩 단계(1~4)를 정한다.",
+  "requestTypes": [
+    {
+      "id": "delegate",
+      "label": "관찰 대행",
+      "definition": "AI에게 관찰 자체를 시키거나 문장을 대신 쓰게 하는 요청",
+      "examples": ["이 잎 관찰해서 써줘", "관찰 문장 만들어줘", "뭐가 보이는지 알려줘"],
+      "keywords": ["써줘", "써 줘", "적어줘", "만들어줘", "대신", "정리해줘", "관찰해줘", "관찰해 줘", "알려줘", "알려 줘", "뭐가 보여", "무엇이 보여", "어떻게 생겼", "설명해줘", "설명해 줘", "묘사해"]
+    },
+    {
+      "id": "guide",
+      "label": "방법·힌트 요청",
+      "definition": "무엇을 어떻게 관찰할지 방법이나 힌트를 묻는 요청",
+      "examples": ["어떤 걸 관찰하면 좋아?", "관찰 방법 알려줘"],
+      "keywords": ["어떻게 관찰", "관찰 방법", "관찰하면", "힌트", "뭘 봐야", "무엇을 봐야", "어디를 봐", "어디를 보", "관찰할 점", "관찰 포인트", "순서"]
+    },
+    {
+      "id": "verify",
+      "label": "확인·점검 요청",
+      "definition": "자신이 쓴 문장이나 관찰이 맞는지 확인받는 요청",
+      "examples": ["내가 쓴 거 맞아?", "이렇게 써도 돼?"],
+      "keywords": ["맞아", "맞나", "맞는지", "맞을까", "확인", "틀렸", "괜찮", "이렇게 써도", "점검", "고쳐"]
+    },
+    {
+      "id": "explain",
+      "label": "지식·설명 요청",
+      "definition": "관찰 대상에 대한 배경 지식이나 이유를 묻는 요청",
+      "examples": ["왜 빨개져?", "이 잎 이름이 뭐야?"],
+      "keywords": ["왜", "이유", "이름", "종류", "뭐야", "무엇이야", "원리", "때문"]
+    }
+  ],
+  "reuse": {
+    "description": "제출한 관찰 문장이 AI 답변과 얼마나 겹치는지. 문장의 글자 2개 묶음(bigram) 중 AI 답변에도 나온 비율이 기준 이상이면 반영으로 센다.",
+    "copiedThreshold": 0.6,
+    "novelThreshold": 0.3
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "label": "자기주도",
+      "meaning": "AI 요청이 거의 없거나, 있어도 관찰을 대신 시키지 않고 제출 문장에 AI 표현이 거의 없다.",
+      "rule": "delegateShare < 0.25 이고 reuseRatio < 0.3"
+    },
+    {
+      "stage": 2,
+      "label": "확인·점검 활용",
+      "meaning": "방법·확인 요청이 중심이고, 관찰 문장은 대체로 학생이 직접 쓴다.",
+      "rule": "delegateShare < 0.25 이고 reuseRatio < 0.45 (1단계 조건에 못 미칠 때)"
+    },
+    {
+      "stage": 3,
+      "label": "부분 의존",
+      "meaning": "관찰 대행 요청이 섞이고, 제출 문장 일부가 AI 답변에서 왔다.",
+      "rule": "delegateShare < 0.6 이고 reuseRatio < 0.6"
+    },
+    {
+      "stage": 4,
+      "label": "대행 의존",
+      "meaning": "요청 대부분이 관찰 대행이고, 제출 문장이 AI 답변과 크게 겹친다.",
+      "rule": "delegateShare >= 0.6 또는 reuseRatio >= 0.6"
+    }
+  ],
+  "indicators": [
+    "requestCount: AI에게 보낸 요청 수",
+    "requestTypeCounts: 요청 유형별 개수",
+    "delegateShare: 관찰 대행 요청 비율",
+    "reuseRatio: AI 답변이 반영된 제출 문장 비율",
+    "novelRatio: AI 답변과 거의 겹치지 않는 제출 문장 비율",
+    "firstRequestSeconds: 시작 후 첫 AI 요청까지 걸린 초"
+  ],
+  "llmJudge": {
+    "description": "서버가 LLM에게 요청·답변·제출 문장을 함께 주고 오프로딩 단계와 근거를 JSON으로 받는다. 키워드 채점과 따로 저장하고, 단계(stage)는 LLM 값을 우선한다."
+  }
+}

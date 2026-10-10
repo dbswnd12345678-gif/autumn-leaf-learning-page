@@ -14,7 +14,7 @@
   };
   const statusEl = document.getElementById("measure-status");
   const listEl = document.getElementById("measure-list");
-  const chatInput = document.getElementById("chat-input");
+  const chatInput = document.getElementById("sentence-input");
   const toolButtons = document.querySelectorAll(".tool-btn[data-tool]");
   let I18N = {};
   try {

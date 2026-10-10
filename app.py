@@ -1,19 +1,19 @@
 """
-단풍 관찰 학습 페이지의 FastAPI 서버.
+단풍 관찰 학습 페이지의 FastAPI 서버 (3모드 개편판).
 
-이전 Node.js/Express 서버(legacy_node/server.js)를 대체한다.
+학습 페이지는 3개 탭(모드)으로 나뉜다. 각 모드는 AnythingLLM 워크스페이스가 따로 있다.
+
+  assess  (탭 1) 관찰력 진단   AI 없이 10분 동안 관찰 문장을 쓰고 최종 제출한다.
+  offload (탭 2) 오프로딩 진단  AI에게 자유롭게 묻고 요청하며 관찰 문장을 쓰고 제출한다.
+  support (탭 3) AI Agent 지원  앞선 진단으로 정한 지원 수준에 맞춰 Agent가 돕는다.
 
 하는 일:
   - public/ 아래 학습 페이지(HTML/CSS/JS, 단풍 사진)를 제공한다.
-  - /api/chat에서 학생 관찰문을 AnythingLLM 에이전트로 보낸다.
-    메시지에는 @agent와 studentId·comparisonMode 태그만 넣고,
-    교육학 안내·이력 조회는 에이전트가 도구로 직접 호출한다.
-  - /api/tools/*는 AnythingLLM Agent Flow가 부르는 도구 주소다.
-    호출마다 db.py의 tool_calls에 기록한다.
-  - 대화는 브라우저 sessionId가 아니라 학번(studentId) 기준으로
-    SQLite에 쌓이므로, 수업이 나뉘어도 이력이 이어진다.
-  - 사진은 한 턴에 최대 2장까지 붙여 비교 관찰을 지원한다.
-  - 잎 종류를 맞히는 PhenoVisionL 연동은 쓰지 않는다.
+  - /api/session/*   모드별 10분 세션(서버 기준 시작·마감 시각)을 관리한다.
+  - /api/chat        탭 2·3의 대화를 모드에 맞는 AnythingLLM 워크스페이스로 보낸다.
+  - /api/submit      최종 관찰 문장을 저장하고 진단(관찰력 수준/오프로딩 단계)을 계산한다.
+  - /api/tools/*     AnythingLLM Agent Flow가 부르는 조회 주소다. 호출마다 tool_calls에 기록한다.
+  - 대화와 진단은 학번(studentId) 기준으로 SQLite에 쌓인다.
 """
 
 from __future__ import annotations
@@ -23,59 +23,78 @@ import base64
 import os
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 if sys.platform == "win32":
     # Windows 로컬 개발 환경에서 uvicorn + httpx 조합으로 AnythingLLM에 https 요청을
-    # 보낼 때 간헐적으로 ConnectError("All connection attempts failed")가 발생하는
-    # 문제가 있었다. Proactor 이벤트 루프로 강제 전환하면 안정적으로 연결된다.
+    # 보낼 때 간헐적으로 ConnectError가 발생하는 문제가 있어 Proactor 루프로 강제한다.
     # (Railway 배포 환경은 Linux라 이 코드는 실행되지 않는다.)
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import db
+import diagnosis
 import reports
-from pedagogy import (
-    build_context,
-    format_history_summary,
-    match_pedagogy_rule,
-    summarize_history,
-)
 
 load_dotenv()
 
 ANYTHINGLLM_BASE_URL = os.environ.get("ANYTHINGLLM_BASE_URL", "")
 ANYTHINGLLM_API_KEY = os.environ.get("ANYTHINGLLM_API_KEY", "")
-ANYTHINGLLM_WORKSPACE_SLUG = os.environ.get("ANYTHINGLLM_WORKSPACE_SLUG", "")
+# 예전 단일 워크스페이스 설정. 모드별 slug를 따로 지정하지 않으면 이 값을 대신 쓴다.
+LEGACY_WORKSPACE_SLUG = os.environ.get("ANYTHINGLLM_WORKSPACE_SLUG", "")
+# 모드별 워크스페이스 slug. judge는 진단 채점 전용이며, 없으면 assess를 쓴다.
+WORKSPACE_SLUGS = {
+    "assess": os.environ.get("WS_SLUG_ASSESS", ""),
+    "offload": os.environ.get("WS_SLUG_OFFLOAD", ""),
+    "support": os.environ.get("WS_SLUG_SUPPORT", ""),
+    "judge": os.environ.get("WS_SLUG_JUDGE", ""),
+}
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
-# AnythingLLM Agent Flow의 "API Call"이 /api/tools/*를 호출할 때
-# X-Tool-Key 헤더로 보내는 비밀 키. 이 주소는 Railway에서 AnythingLLM이
-# 닿아야 해서 공개되어 있으므로, 키가 없으면 누구나 직접 호출할 수 있다.
+# AnythingLLM Agent Flow의 "API Call"이 /api/tools/*를 호출할 때 X-Tool-Key 헤더로 보내는 비밀 키.
 TOOL_API_KEY = os.environ.get("TOOL_API_KEY", "")
 PORT = int(os.environ.get("PORT", "3000"))
+
+# 한 모드의 제한 시간(초). 시연이나 점검 때는 SESSION_SECONDS=60처럼 줄여서 쓴다.
+SESSION_SECONDS = int(os.environ.get("SESSION_SECONDS", "600"))
+# 마감 직후 도착한 요청도 받아 주는 여유(초).
+SESSION_GRACE_SECONDS = int(os.environ.get("SESSION_GRACE_SECONDS", "20"))
+# 1이면 탭 1·2 진단이 없어도 탭 3을 연다(개발·점검용).
+UNLOCK_ALL = os.environ.get("UNLOCK_ALL", "") == "1"
+
+MODES = ("assess", "offload", "support")
+MODE_LABELS = {"assess": "관찰력 진단", "offload": "오프로딩 진단", "support": "AI Agent 지원"}
 
 BASE_DIR = Path(__file__).parent
 PUBLIC_DIR = BASE_DIR / "public"
 IMAGES_DIR = PUBLIC_DIR / "images"
-ALLOWED_IMAGES = ["leaf1.jpg", "leaf2.jpg", "leaf3.webp", "leaf4.jpg", "leaf5.png"]
+ALLOWED_IMAGES = [
+    "l1-01.jpg", "l1-02.jpg", "l1-03.jpg", "l1-04.jpg", "l1-05.jpg",
+    "l2-01.jpg", "l2-02.jpg", "l2-03.jpg", "l2-04.jpg", "l2-05.jpg",
+    "l3-01.jpg", "l3-02.jpg", "l3-03.jpg", "l3-04.jpg", "l3-05.jpg",
+    "l4-01.jpg", "l4-02.jpg", "l4-03.jpg", "l4-04.jpg", "l4-05.jpg",
+]
+# 모드마다 서로 다른 사진 한 장을 쓴다. 세 장은 비슷한 난이도의 단일 단풍잎이다.
+MODE_IMAGES = {
+    "assess": ["l2-05.jpg"],
+    "offload": ["l2-03.jpg"],
+    "support": ["l2-01.jpg"],
+}
 
-if not (ANYTHINGLLM_BASE_URL and ANYTHINGLLM_API_KEY and ANYTHINGLLM_WORKSPACE_SLUG):
-    print(
-        "[경고] .env 파일(또는 Railway 환경변수)에 ANYTHINGLLM_BASE_URL / "
-        "ANYTHINGLLM_API_KEY / ANYTHINGLLM_WORKSPACE_SLUG 가 설정되지 않았습니다."
-    )
+if not (ANYTHINGLLM_BASE_URL and ANYTHINGLLM_API_KEY):
+    print("[경고] ANYTHINGLLM_BASE_URL / ANYTHINGLLM_API_KEY 가 설정되지 않았습니다.")
+for _mode in ("offload", "support"):
+    if not (WORKSPACE_SLUGS[_mode] or LEGACY_WORKSPACE_SLUG):
+        print(f"[경고] WS_SLUG_{_mode.upper()} 가 설정되지 않아 {_mode} 모드 대화를 쓸 수 없습니다.")
 if not ADMIN_KEY:
-    print(
-        "[경고] ADMIN_KEY 환경변수가 설정되지 않았습니다. "
-        "연구자용 전체 대화 기록 다운로드(/api/admin/*)를 쓸 수 없습니다."
-    )
+    print("[경고] ADMIN_KEY 환경변수가 설정되지 않았습니다. /api/admin/* 를 쓸 수 없습니다.")
 
 app = FastAPI(title="단풍 관찰 학습 서버")
 
@@ -153,81 +172,57 @@ def sanitize_answer(text: str) -> str:
     return result.strip()
 
 
-def build_agent_message(student_id: str, student_message: str, comparison_mode: bool) -> str:
-    # AnythingLLM은 메시지 앞에 "@agent"가 있어야 도구를 호출한다.
-    # 도구 파라미터 이름과 같은 태그만 넣고, 본문은 학생 관찰문만 보낸다.
-    tag = f"[studentId: {student_id}]"
-    if comparison_mode:
-        tag += " [comparisonMode: true]"
-    return f"@agent {tag}\n\n{student_message}"
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-# ---------------------------------------------------------------------------
-# /api/chat
-# ---------------------------------------------------------------------------
-
-class ChatRequest(BaseModel):
-    message: str
-    images: list[str] = Field(default_factory=list)
-    studentId: str
-    sessionId: str
-    comparisonMode: bool = False
+def parse_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value)
 
 
-@app.post("/api/chat")
-async def chat(req: ChatRequest):
-    message = (req.message or "").strip()
-    if not message:
-        raise HTTPException(400, "message가 필요합니다.")
+def workspace_slug(mode: str) -> str:
+    """모드에 맞는 워크스페이스 slug. 모드별 설정이 없으면 예전 단일 slug를 쓴다."""
+    return WORKSPACE_SLUGS.get(mode) or LEGACY_WORKSPACE_SLUG
 
-    student_id = sanitize_id(req.studentId)
-    session_id = sanitize_id(req.sessionId)
-    if not student_id:
-        raise HTTPException(400, "studentId가 필요합니다.")
-    if not session_id:
-        raise HTTPException(400, "sessionId가 필요합니다.")
-    if not (ANYTHINGLLM_BASE_URL and ANYTHINGLLM_API_KEY and ANYTHINGLLM_WORKSPACE_SLUG):
+
+def judge_slug() -> str:
+    """오프로딩 진단 채점 전용 워크스페이스. 관찰력 진단(assess)은 자기 워크스페이스의 Agent가 채점한다."""
+    return WORKSPACE_SLUGS["judge"]
+
+
+def judge_slug_for(mode: str) -> str:
+    if mode == "assess":
+        return workspace_slug("assess")
+    if mode == "offload":
+        return judge_slug()
+    return ""
+
+
+async def call_anythingllm(
+    slug: str,
+    message: str,
+    session_id: str,
+    attachments: Optional[list[dict]] = None,
+    timeout: float = 120.0,
+) -> str:
+    """AnythingLLM 워크스페이스에 메시지를 보내고 답변 문장을 돌려준다.
+    Railway 쪽 연결이 간헐적으로 불안정해서 같은 요청을 한 번 더 시도한다."""
+    if not (ANYTHINGLLM_BASE_URL and ANYTHINGLLM_API_KEY and slug):
         raise HTTPException(500, "서버에 AnythingLLM 연결 정보(환경변수)가 설정되지 않았습니다.")
 
-    images = [img for img in (req.images or []) if img in ALLOWED_IMAGES][:2]
-    attachments = [a for a in (load_image_attachment(name) for name in images) if a]
-    comparison_mode = bool(req.comparisonMode) and len(images) >= 2
-
-    history = db.get_student_history(student_id)
-    turn_index = len(history)  # 이미 저장된 턴 수. 이번 턴은 아직 넣지 않음.
-    is_first_observation = turn_index < 2
-
-    # 연구 기록용 채점. 교육학 발문 매칭은 /api/tools/pedagogy-hint가
-    # 이번 문장 + 이력 요약으로 따로 수행한다.
-    ctx = build_context(
-        turn_index=turn_index,
-        is_first_observation=is_first_observation,
-        text=message,
-        comparison_mode=comparison_mode,
-        has_second_image_available=len(images) >= 1,
-    )
-
-    agent_message = build_agent_message(student_id, message, comparison_mode)
-
-    target_url = (
-        f"{normalize_base_url(ANYTHINGLLM_BASE_URL)}/api/v1/workspace/"
-        f"{ANYTHINGLLM_WORKSPACE_SLUG}/chat"
-    )
+    target_url = f"{normalize_base_url(ANYTHINGLLM_BASE_URL)}/api/v1/workspace/{slug}/chat"
     payload = {
-        "message": agent_message,
+        "message": message,
         "mode": "chat",
         "sessionId": session_id,
-        "attachments": attachments,
+        "attachments": attachments or [],
     }
 
-    # Railway 쪽 연결이 간헐적으로 불안정해서 ConnectError가 한 번씩 발생할 수 있으므로
-    # 같은 요청을 한 번 더 시도해본다 (이미지+Agent Flow 처리는 20~30초 이상 걸릴 수 있어
-    # 타임아웃도 넉넉하게 잡는다).
     resp = None
     last_exc: Optional[Exception] = None
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(
                     target_url,
                     headers={
@@ -242,45 +237,334 @@ async def chat(req: ChatRequest):
             print(f"[AnythingLLM 호출 시도 {attempt + 1} 실패] {exc}")
     if resp is None:
         raise HTTPException(502, f"AnythingLLM 호출 실패: {last_exc}")
-
     if resp.status_code >= 400:
         raise HTTPException(
             502, f"AnythingLLM 응답 오류 ({resp.status_code}): {resp.text[:200]}"
         )
-
     data = resp.json()
-    answer = sanitize_answer(data.get("textResponse") or "(응답이 비어 있습니다)")
+    return str(data.get("textResponse") or "")
 
-    # 이번 요청 중에 에이전트가 '교육학 안내 조회'를 불렀다면
-    # tool_calls에 방금 한 줄이 남는다. 연구자 내보내기 편의를 위해
-    # 그 규칙 id·단계를 이번 관찰 행에 붙인다.
-    # 참고용일 뿐이고, 호출을 안 했거나 여러 번 한 경우까지 포함한
-    # 정확한 기록은 tool_calls 표 자체에 있다.
-    last_pedagogy_call = db.get_last_tool_call(student_id, "pedagogy_hint")
+
+# ---------------------------------------------------------------------------
+# 모드별 10분 세션
+# ---------------------------------------------------------------------------
+
+def is_support_unlocked(student_id: str) -> bool:
+    """탭 3은 탭 1(관찰력)과 탭 2(오프로딩) 진단이 모두 있어야 열린다."""
+    if UNLOCK_ALL:
+        return True
+    return bool(db.get_diagnosis(student_id, "assess") and db.get_diagnosis(student_id, "offload"))
+
+
+def remaining_seconds(session: dict[str, Any]) -> int:
+    return max(0, int((parse_iso(session["deadline_at"]) - utc_now()).total_seconds()))
+
+
+def mode_status(student_id: str, mode: str) -> dict[str, Any]:
+    session = db.get_session(student_id, mode)
+    status = "not_started"
+    remaining = SESSION_SECONDS
+    submitted = False
+    if mode == "support" and not session and not is_support_unlocked(student_id):
+        status = "locked"
+    if session:
+        submitted = bool(session.get("submitted_at"))
+        remaining = remaining_seconds(session)
+        if submitted:
+            status = "submitted"
+        elif remaining <= 0:
+            status = "expired"
+        else:
+            status = "in_progress"
+    return {
+        "mode": mode,
+        "label": MODE_LABELS[mode],
+        "status": status,
+        "remainingSeconds": remaining,
+        "durationSeconds": SESSION_SECONDS,
+        "submitted": submitted,
+        "images": MODE_IMAGES[mode],
+    }
+
+
+def require_active_session(student_id: str, mode: str) -> dict[str, Any]:
+    session = db.get_session(student_id, mode)
+    if not session:
+        raise HTTPException(403, "먼저 시작 버튼을 눌러 주세요.")
+    if session.get("submitted_at"):
+        raise HTTPException(403, "이미 제출했습니다.")
+    if (utc_now() - parse_iso(session["deadline_at"])).total_seconds() > SESSION_GRACE_SECONDS:
+        raise HTTPException(403, "제한 시간이 끝났습니다. 관찰 문장을 제출해 주세요.")
+    return session
+
+
+def validate_mode(mode: str) -> str:
+    if mode not in MODES:
+        raise HTTPException(400, "mode는 assess, offload, support 중 하나여야 합니다.")
+    return mode
+
+
+@app.get("/api/session/status")
+def session_status(studentId: str = Query(...)):
+    student_id = sanitize_id(studentId)
+    if not student_id:
+        raise HTTPException(400, "studentId가 필요합니다.")
+    return {
+        "studentId": student_id,
+        "durationSeconds": SESSION_SECONDS,
+        "modes": {mode: mode_status(student_id, mode) for mode in MODES},
+    }
+
+
+class SessionStartRequest(BaseModel):
+    studentId: str
+    mode: str
+
+
+@app.post("/api/session/start")
+def session_start(req: SessionStartRequest):
+    student_id = sanitize_id(req.studentId)
+    if not student_id:
+        raise HTTPException(400, "studentId가 필요합니다.")
+    mode = validate_mode(req.mode)
+    if mode == "support" and not is_support_unlocked(student_id):
+        raise HTTPException(403, "탭 1과 탭 2를 먼저 마쳐야 탭 3을 시작할 수 있습니다.")
+    now = utc_now()
+    db.start_session(
+        student_id,
+        mode,
+        started_at=now.isoformat(),
+        deadline_at=(now + timedelta(seconds=SESSION_SECONDS)).isoformat(),
+        images=MODE_IMAGES[mode],
+    )
+    return mode_status(student_id, mode)
+
+
+# ---------------------------------------------------------------------------
+# /api/chat (탭 2, 탭 3)
+# ---------------------------------------------------------------------------
+
+def student_levels(student_id: str) -> tuple[Optional[int], Optional[int]]:
+    """저장된 진단에서 (관찰력 수준, 오프로딩 단계)를 꺼낸다. 없으면 None."""
+    assess = db.get_diagnosis(student_id, "assess")
+    offload = db.get_diagnosis(student_id, "offload")
+    obs_level = (assess or {}).get("payload", {}).get("level")
+    off_stage = (offload or {}).get("payload", {}).get("stage")
+    return obs_level, off_stage
+
+
+def build_support_message(
+    student_id: str, student_message: str, support_level: int, input_kind: str
+) -> str:
+    # AnythingLLM은 메시지 앞에 "@agent"가 있어야 도구(Agent Flow)를 호출한다.
+    # 태그는 짧게 두고, 지원 방법의 내용은 Agent가 Flow로 조회한다.
+    tag = (
+        f"[studentId: {student_id}] "
+        f"[supportLevel: {support_level}] [input: {input_kind}]"
+    )
+    return f"@agent {tag}\n\n{student_message}"
+
+
+class ChatRequest(BaseModel):
+    message: str
+    studentId: str
+    sessionId: str
+    mode: str
+    # question: 학생이 AI에게 한 질문·요청, sentence: 탭 3에서 입력한 관찰 문장
+    kind: str = "question"
+
+
+@app.post("/api/chat")
+async def chat(req: ChatRequest):
+    message = (req.message or "").strip()
+    if not message:
+        raise HTTPException(400, "message가 필요합니다.")
+    message = message[:2000]
+
+    student_id = sanitize_id(req.studentId)
+    session_id = sanitize_id(req.sessionId)
+    if not student_id:
+        raise HTTPException(400, "studentId가 필요합니다.")
+    if not session_id:
+        raise HTTPException(400, "sessionId가 필요합니다.")
+    mode = validate_mode(req.mode)
+    if mode == "assess":
+        raise HTTPException(400, "관찰력 진단(탭 1)에서는 AI를 쓰지 않습니다.")
+    input_kind = "sentence" if req.kind == "sentence" else "question"
+
+    session = require_active_session(student_id, mode)
+    slug = workspace_slug(mode)
+    if not slug:
+        raise HTTPException(500, "이 모드의 AnythingLLM 워크스페이스 slug가 설정되지 않았습니다.")
+
+    images = [img for img in session.get("images", []) if img in ALLOWED_IMAGES][:1]
+    attachments = [a for a in (load_image_attachment(name) for name in images) if a]
+
+    support_level: Optional[int] = None
+    last_tool_id = 0
+    if mode == "support":
+        obs_level, off_stage = student_levels(student_id)
+        support_level = diagnosis.compute_support_level(obs_level, off_stage)["supportLevel"]
+        agent_message = build_support_message(student_id, message, support_level, input_kind)
+        last_tool_id = db.get_max_tool_call_id(student_id)
+    else:
+        # 탭 2는 학생이 평소 쓰는 AI에 가깝게 두기 위해, 태그나 @agent 없이 질문 그대로 보낸다.
+        agent_message = message
+
+    answer = sanitize_answer(
+        await call_anythingllm(slug, agent_message, f"{mode}-{session_id}", attachments)
+        or "(응답이 비어 있습니다)"
+    )
+
+    tools_called: Optional[str] = None
+    tool_skipped: Optional[bool] = None
+    if mode == "support":
+        # Agent가 이번 턴에 지원 방법 조회를 실제로 불렀는지 확인한다.
+        new_calls = db.get_tool_calls_after(student_id, last_tool_id)
+        names = [c["tool_name"] for c in new_calls]
+        tools_called = ",".join(names)
+        tool_skipped = not any(n in ("support_methods", "observation_methods") for n in names)
+        if tool_skipped:
+            db.log_tool_call(
+                student_id=student_id,
+                tool_name="tool_skipped",
+                input_text=message,
+                result_summary=f"supportLevel={support_level}, input={input_kind}",
+            )
 
     db.add_observation(
         student_id=student_id,
         session_id=session_id,
         images=images,
-        comparison_mode=comparison_mode,
+        comparison_mode=False,
         question=message,
         answer=answer,
-        objectivity_score=ctx.objectivity_score,
-        term_count=ctx.term_count,
-        variety_count=ctx.variety_count,
-        spatial_scope=ctx.spatial_scope,
-        pedagogy_rule_id=(last_pedagogy_call or {}).get("pedagogy_rule_id"),
-        ai_stage=(last_pedagogy_call or {}).get("ai_stage"),
+        objectivity_score=None,
+        term_count=None,
+        variety_count=None,
+        spatial_scope=None,
+        pedagogy_rule_id=None,
+        ai_stage=None,
+        mode=mode,
+        input_kind=input_kind,
+        support_level=support_level,
+        tools_called=tools_called,
+        tool_skipped=tool_skipped,
     )
 
-    return {"answer": answer}
+    return {"answer": answer, "remainingSeconds": remaining_seconds(session)}
 
 
 # ---------------------------------------------------------------------------
-# AnythingLLM 에이전트 도구 (Agent Flow의 "API Call"이 호출).
-# 워크스페이스 시스템 프롬프트로 매 턴
-# "학생 관찰 이력 조회"와 "교육학 안내 조회"를 반드시 호출한다.
-# 모든 호출은 db.tool_calls에 기록된다.
+# /api/submit: 최종 제출과 진단
+# ---------------------------------------------------------------------------
+
+class SubmitRequest(BaseModel):
+    studentId: str
+    mode: str
+    # 문자열 목록 또는 {text, t(시작 후 경과 초)} 목록
+    sentences: list[Any] = Field(default_factory=list)
+    # 시간이 다 되어 화면이 자동으로 제출한 경우 true
+    auto: bool = False
+
+
+async def run_judge(
+    student_id: str,
+    mode: str,
+    keyword_payload: dict[str, Any],
+    sentences: list[dict[str, Any]],
+    turns: list[dict[str, Any]],
+    image_names: list[str],
+) -> None:
+    """LLM 판정을 받아 진단 결과에 덧붙인다. 실패해도 키워드 채점은 그대로 남는다."""
+    slug = judge_slug_for(mode)
+    try:
+        if mode == "assess":
+            # 관찰력 진단: Agent가 기준 조회 Flow와 결과 기록 Flow를 불러 DB에 직접 기록한다.
+            # 서버는 답변 문장을 쓰지 않고, 기록이 실제로 남았는지만 확인한다.
+            prompt = diagnosis.build_observation_agent_message(student_id, sentences)
+            attachments = [a for a in (load_image_attachment(n) for n in image_names) if a]
+            await call_anythingllm(
+                slug, prompt, f"judge-{student_id}-{mode}-{int(utc_now().timestamp())}",
+                attachments, timeout=150.0,
+            )
+            record = db.get_diagnosis(student_id, "assess")
+            current = (record or {}).get("payload") or keyword_payload
+            if current.get("judgeStatus") != "done":
+                raise ValueError("Agent가 결과 기록 Flow를 부르지 않았습니다.")
+            return
+        else:
+            prompt = diagnosis.build_offloading_judge_prompt(turns, sentences)
+            attachments = []
+        text = await call_anythingllm(
+            slug, prompt, f"judge-{student_id}-{mode}-{int(utc_now().timestamp())}",
+            attachments, timeout=90.0,
+        )
+        judge = diagnosis.extract_json(text)
+        if judge is None:
+            raise ValueError("판정 응답에서 JSON을 읽지 못했습니다.")
+        if mode == "assess":
+            merged = diagnosis.merge_observation_judge(keyword_payload, judge)
+        else:
+            merged = diagnosis.merge_offloading_judge(keyword_payload, judge)
+        merged["judgeStatus"] = "done"
+        db.save_diagnosis(student_id, mode, mode_kind(mode), merged)
+    except Exception as exc:  # noqa: BLE001 - 채점 실패가 제출을 막으면 안 된다.
+        print(f"[LLM 판정 실패] {student_id}/{mode}: {exc}")
+        failed = dict(keyword_payload)
+        failed["judgeStatus"] = "failed"
+        failed["judgeError"] = str(exc)[:200]
+        db.save_diagnosis(student_id, mode, mode_kind(mode), failed)
+
+
+def mode_kind(mode: str) -> str:
+    return {"assess": "observation", "offload": "offloading", "support": "support_outcome"}[mode]
+
+
+@app.post("/api/submit")
+async def submit(req: SubmitRequest, background: BackgroundTasks):
+    student_id = sanitize_id(req.studentId)
+    if not student_id:
+        raise HTTPException(400, "studentId가 필요합니다.")
+    mode = validate_mode(req.mode)
+
+    session = db.get_session(student_id, mode)
+    if not session:
+        raise HTTPException(403, "시작하지 않은 모드입니다.")
+    if session.get("submitted_at"):
+        return {"ok": True, "alreadySubmitted": True}
+
+    sentences = diagnosis.normalize_sentences(req.sentences)
+    if not db.submit_session(student_id, mode, sentences, req.auto):
+        return {"ok": True, "alreadySubmitted": True}
+
+    turns = db.get_mode_observations(student_id, mode)
+    image_names = session.get("images", [])
+
+    if mode == "assess":
+        payload = diagnosis.score_observation(sentences)
+    elif mode == "offload":
+        payload = diagnosis.score_offloading(turns, sentences, session.get("started_at"))
+    else:
+        # 탭 3은 진단이 아니라 지원 후 관찰 결과를 기록한다.
+        payload = diagnosis.score_observation(sentences)
+        payload["method"] = "keyword"
+        payload["turnCount"] = len(turns)
+        payload["toolSkippedTurns"] = sum(1 for t in turns if t.get("tool_skipped"))
+        payload["supportLevels"] = sorted({t["support_level"] for t in turns if t.get("support_level")})
+
+    payload["judgeStatus"] = "pending" if judge_slug_for(mode) else "skipped"
+    db.save_diagnosis(student_id, mode, mode_kind(mode), payload)
+
+    if payload["judgeStatus"] == "pending":
+        background.add_task(run_judge, student_id, mode, payload, sentences, turns, image_names)
+
+    return {"ok": True, "alreadySubmitted": False, "sentenceCount": len(sentences)}
+
+
+# ---------------------------------------------------------------------------
+# AnythingLLM Agent Flow용 조회 주소 (/api/tools/*)
+# 모든 호출은 db.tool_calls에 기록한다.
 # ---------------------------------------------------------------------------
 
 def require_tool_key(x_tool_key: Optional[str]) -> None:
@@ -290,112 +574,307 @@ def require_tool_key(x_tool_key: Optional[str]) -> None:
         raise HTTPException(403, "tool 인증 키가 올바르지 않습니다.")
 
 
-class PedagogyHintRequest(BaseModel):
-    studentId: str
-    observationText: str
-    comparisonMode: bool = False
-    hasSecondImageAvailable: bool = False
+def tool_student(student_id: str) -> str:
+    sid = sanitize_id(student_id)
+    if not sid:
+        raise HTTPException(400, "studentId가 필요합니다.")
+    return sid
 
 
-@app.post("/api/tools/pedagogy-hint")
-def tool_pedagogy_hint(
-    req: PedagogyHintRequest,
+@app.get("/api/tools/observation-criteria")
+def tool_observation_criteria(
+    studentId: str = Query(""),
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """AnythingLLM의 '교육학 안내 조회' 흐름이 호출한다.
-    이번 관찰문과 이력 요약으로 pedagogy_db.json에서 발문 힌트 하나를 고른다."""
+    """관찰력 진단 기준 조회. 관찰력 진단 Agent가 채점 전에 부른다."""
     require_tool_key(x_tool_key)
-
-    student_id = sanitize_id(req.studentId)
-    if not student_id:
-        raise HTTPException(400, "studentId가 필요합니다.")
-    observation_text = (req.observationText or "").strip()
-    if not observation_text:
-        raise HTTPException(400, "observationText가 필요합니다.")
-
-    history = db.get_student_history(student_id)
-    turn_index = len(history)
-    is_first_observation = turn_index < 2
-    previous_rule_ids = db.get_recent_pedagogy_rule_ids(student_id, limit=3)
-    past = summarize_history(history)
-
-    ctx = build_context(
-        turn_index=turn_index,
-        is_first_observation=is_first_observation,
-        text=observation_text,
-        comparison_mode=bool(req.comparisonMode),
-        has_second_image_available=bool(req.hasSecondImageAvailable),
-        history=history,
-    )
-    rule = match_pedagogy_rule(ctx, previous_rule_ids)
-    hint = (rule or {}).get(
-        "adaptedForVisual",
-        "지금은 추가로 제안할 교육학적 힌트가 없습니다. 학생의 관찰을 있는 그대로 인정하고 격려해주세요.",
-    )
-
+    student_id = sanitize_id(studentId) or "unknown"
+    rubric = diagnosis.load_knowledge("observation_rubric")
     db.log_tool_call(
         student_id=student_id,
-        tool_name="pedagogy_hint",
-        input_text=observation_text,
-        pedagogy_rule_id=(rule or {}).get("id"),
-        ai_stage=(rule or {}).get("matchedStage"),
-        result_summary=hint,
+        tool_name="observation_criteria",
+        result_summary="진단 기준 조회",
     )
-
     return {
-        "hint": hint,
+        "categories": [
+            {"id": c["id"], "label": c["label"], "definition": c["definition"]}
+            for c in rubric["categories"]
+        ],
+        "levels": [
+            {"level": l["level"], "label": l["label"], "meaning": l["meaning"]}
+            for l in rubric["levels"]
+        ],
+        "photoMatchValues": {
+            "match": "사진에서 확인되는 문장이 대부분이다",
+            "partly": "일부만 사진과 맞다",
+            "mismatch": "사진과 다른 내용이 많다",
+            "unknown": "사진이 모호하거나 사진을 볼 수 없어 판단할 수 없다",
+        },
         "howToUse": (
-            "이번 관찰문을 먼저 인정하세요. 그다음 이 발문으로 다음 관찰을 하나만 제안하세요. "
-            "이력이 보여 주는 이미 한 관찰은 반복 제안하지 마세요."
+            "학생 문장을 범주별로 나누고 사진과 비교한 뒤 level(1~3)을 정해 "
+            "observation-result 로 기록하세요. 학생에게 답변하지 마세요."
         ),
-        "stage": (rule or {}).get("matchedStage"),
-        "ruleId": (rule or {}).get("id"),
-        "scoring": {
-            "objectivityScore": ctx.current_objectivity_score,
-            "varietyCount": ctx.variety_count,
-            "termCount": ctx.term_count,
-            "spatialScope": ctx.spatial_scope,
-        },
-        "historyFilter": {
-            "alreadyQuantified": past["already_quantified"],
-            "alreadyUsedTools": past["already_used_tools"],
-            "turnCount": past["turn_count"],
-        },
     }
 
 
-@app.get("/api/tools/history-lookup")
-def tool_history_lookup(
-    studentId: str = Query(...),
+class ObservationResult(BaseModel):
+    """Agent Flow가 보내는 값은 모두 문자열일 수 있어 느슨하게 받는다."""
+
+    studentId: str
+    level: Any = None
+    categories: Any = ""
+    photoMatch: Any = "unknown"
+    rationale: Any = ""
+
+
+@app.post("/api/tools/observation-result")
+def tool_observation_result(
+    body: ObservationResult,
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """AnythingLLM의 '학생 관찰 이력 조회' 흐름이 호출한다.
-    이 학생의 과거 관찰 요약을 돌려준다. 이력은 이미 한 관찰을 빼는 필터로만 쓰고,
-    답변의 중심은 이번 관찰문이다."""
+    """관찰력 진단 결과 기록. Agent가 채점한 수준을 진단 결과(diagnoses)에 합쳐 저장한다."""
     require_tool_key(x_tool_key)
+    student_id = tool_student(body.studentId)
 
-    student_id = sanitize_id(studentId)
-    if not student_id:
-        raise HTTPException(400, "studentId가 필요합니다.")
+    try:
+        level = int(str(body.level).strip())
+    except (TypeError, ValueError):
+        raise HTTPException(400, "level은 1, 2, 3 중 하나여야 합니다.")
+    if level not in (1, 2, 3):
+        raise HTTPException(400, "level은 1, 2, 3 중 하나여야 합니다.")
 
-    history = db.get_student_history(student_id)
-    summary = format_history_summary(history)
-    past = summarize_history(history)
+    record = db.get_diagnosis(student_id, "assess")
+    if not record:
+        raise HTTPException(404, "제출된 관찰력 진단이 없습니다.")
+
+    rubric = diagnosis.load_knowledge("observation_rubric")
+    known_ids = {c["id"] for c in rubric["categories"]}
+    raw_cats = body.categories if isinstance(body.categories, list) else str(body.categories or "").split(",")
+    categories = [str(c).strip() for c in raw_cats if str(c).strip() in known_ids]
+
+    match = str(body.photoMatch or "unknown").strip().lower()
+    rate = {"match": 1.0, "partly": 0.5, "mismatch": 0.0}.get(match)
+
+    judge = {
+        "level": level,
+        "rationale": str(body.rationale or "")[:500],
+        "categories": categories,
+        "photoMatch": match,
+        "photoMatchRate": rate,
+        "recordedBy": "agent",
+    }
+    keyword_payload = dict(record["payload"])
+    merged = diagnosis.merge_observation_judge(keyword_payload, judge)
+    merged["judgeStatus"] = "done"
+    db.save_diagnosis(student_id, "assess", mode_kind("assess"), merged)
 
     db.log_tool_call(
         student_id=student_id,
-        tool_name="history_lookup",
-        input_text=None,
-        result_summary=summary,
+        tool_name="observation_result",
+        input_text=f"level={level}, categories={','.join(categories)}, photoMatch={match}",
+        result_summary=f"기록 완료 (키워드 수준 {keyword_payload.get('level')} -> 최종 {level})",
+    )
+    return {"ok": True, "recorded": True, "level": level}
+
+
+@app.get("/api/tools/observation-assessment")
+def tool_observation_assessment(
+    studentId: str = Query(...),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """관찰력 평가 데이터 조회. 평가 기준과 이 학생의 탭 1 진단 결과를 돌려준다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+
+    rubric = diagnosis.load_knowledge("observation_rubric")
+    record = db.get_diagnosis(student_id, "assess")
+    result = (record or {}).get("payload")
+
+    summary = None
+    if result:
+        obs_ids = rubric["observationCategoryIds"]
+        used = result.get("categoriesUsed", [])
+        summary = {
+            "level": result.get("level"),
+            "levelLabel": result.get("levelLabel"),
+            "score": result.get("score"),
+            "sentenceCount": result.get("sentenceCount"),
+            "varietyCount": result.get("varietyCount"),
+            "categoriesUsed": used,
+            "categoriesMissing": [c for c in obs_ids if c not in used],
+            "quantitySentenceCount": result.get("quantitySentenceCount"),
+            "inferenceRatio": result.get("inferenceRatio"),
+            "photoMatchRate": (result.get("judge") or {}).get("photoMatchRate"),
+            "rationale": (result.get("judge") or {}).get("rationale"),
+        }
+
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="observation_assessment",
+        result_summary=(
+            f"level={summary['level']}, score={summary['score']}" if summary else "진단 없음"
+        ),
+    )
+    return {
+        "assessment": summary,
+        "found": summary is not None,
+        "criteria": {
+            "categories": [
+                {"id": c["id"], "label": c["label"], "definition": c["definition"]}
+                for c in rubric["categories"]
+            ],
+            "levels": rubric["levels"],
+        },
+        "howToUse": "이 학생의 관찰력 수준과 아직 쓰지 않은 범주를 파악하는 데만 쓰세요. 학생에게 점수를 말하지 마세요.",
+    }
+
+
+@app.get("/api/tools/offloading-diagnosis")
+def tool_offloading_diagnosis(
+    studentId: str = Query(...),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """오프로딩 단계 진단 조회. 단계 정의와 이 학생의 탭 2 진단 결과를 돌려준다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+
+    stages = diagnosis.load_knowledge("offloading_stages")
+    record = db.get_diagnosis(student_id, "offload")
+    result = (record or {}).get("payload")
+
+    summary = None
+    if result:
+        summary = {
+            "stage": result.get("stage"),
+            "stageLabel": result.get("stageLabel"),
+            "requestCount": result.get("requestCount"),
+            "requestTypeCounts": result.get("requestTypeCounts"),
+            "delegateShare": result.get("delegateShare"),
+            "reuseRatio": result.get("reuseRatio"),
+            "rationale": (result.get("judge") or {}).get("rationale"),
+        }
+
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="offloading_diagnosis",
+        result_summary=f"stage={summary['stage']}" if summary else "진단 없음",
+    )
+    return {
+        "diagnosis": summary,
+        "found": summary is not None,
+        "stages": [
+            {"stage": s["stage"], "label": s["label"], "meaning": s["meaning"]}
+            for s in stages["stages"]
+        ],
+        "howToUse": "이 학생이 AI에 얼마나 의존하는지 파악하는 데만 쓰세요. 학생에게 단계를 말하지 마세요.",
+    }
+
+
+@app.get("/api/tools/support-methods")
+def tool_support_methods(
+    studentId: str = Query(...),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """오프로딩 단계별 지원방법 조회. 서버가 계산한 지원 수준의 지원 방법을 돌려준다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+
+    obs_level, off_stage = student_levels(student_id)
+    computed = diagnosis.compute_support_level(obs_level, off_stage)
+    level = computed["supportLevel"]
+    methods = diagnosis.get_support_level_methods(level) or {}
+    support = diagnosis.load_knowledge("support_methods")
+    note = next(
+        (s["note"] for s in support["byOffloadingStage"] if s["stage"] == off_stage), None
     )
 
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="support_methods",
+        result_summary=f"supportLevel={level} ({computed['source']})",
+    )
     return {
-        "summary": summary,
-        "turnCount": len(history),
-        "recentObservations": past["recent_questions"],
-        "alreadyQuantified": past["already_quantified"],
-        "alreadyUsedTools": past["already_used_tools"],
-        "howToUse": "이 이력으로 이미 한 관찰은 다시 시키지 마세요. 답변은 이번 학생 관찰문을 중심으로 쓰세요.",
+        "supportLevel": level,
+        "supportLabel": methods.get("label"),
+        "methods": methods.get("methods", []),
+        "dontDo": methods.get("dontDo", []),
+        "offloadingNote": note,
+        "principles": support["principles"],
+        "howToUse": "방법 중 하나만 골라 이번 답변에 쓰세요. 관찰 내용을 대신 말하지 마세요.",
+    }
+
+
+@app.get("/api/tools/observation-methods")
+def tool_observation_methods(
+    studentId: str = Query(...),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """단풍잎 관찰 시 관찰 유형 및 방법 조회. 이 학생이 아직 쓰지 않은 유형을 돌려준다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+
+    # 탭 3에서 지금까지 입력한 관찰 문장으로 이미 쓴 범주를 센다.
+    rows = [
+        r for r in db.get_mode_observations(student_id, "support") if r.get("input_kind") == "sentence"
+    ]
+    sentences = [{"text": r["question"], "t": None} for r in rows if r.get("question")]
+    used_now = diagnosis.score_observation(sentences)["categoriesUsed"] if sentences else []
+
+    # 탭 1에서 쓰지 못한 범주를 먼저 안내하도록 순서를 정한다.
+    assess = (db.get_diagnosis(student_id, "assess") or {}).get("payload", {})
+    missed_before = set(assess.get("categoriesUsed") or [])
+    remaining = diagnosis.remaining_observation_types(used_now)
+    remaining.sort(key=lambda t: t["id"] in missed_before)
+
+    types = diagnosis.load_knowledge("observation_types")
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="observation_methods",
+        result_summary=f"used={','.join(used_now)}; offered={','.join(t['id'] for t in remaining[:3])}",
+    )
+    return {
+        "usedCategories": used_now,
+        "suggestedTypes": remaining[:3],
+        "avoid": types["avoid"],
+        "howToUse": "제안은 하나만 고르세요. 학생이 직접 사진에서 찾고 한 문장 쓰게 하세요.",
+    }
+
+
+@app.get("/api/tools/dialogue-log")
+def tool_dialogue_log(
+    studentId: str = Query(...),
+    mode: Optional[str] = None,
+    limit: int = 10,
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """개인별 대화 로그 조회. 기록은 서버가 /api/chat에서 항상 저장하고, Agent는 읽기만 한다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+    if mode and mode not in MODES:
+        raise HTTPException(400, "mode는 assess, offload, support 중 하나여야 합니다.")
+
+    rows = db.get_mode_observations(student_id, mode) if mode else db.get_student_history(student_id)
+    rows = [r for r in rows if r.get("mode")]
+    rows = rows[-max(1, min(limit, 30)):]
+    turns = [
+        {
+            "mode": r.get("mode"),
+            "kind": r.get("input_kind"),
+            "student": r.get("question"),
+            "ai": (r.get("answer") or "")[:300],
+            "timestamp": r.get("timestamp"),
+        }
+        for r in rows
+    ]
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="dialogue_log",
+        result_summary=f"mode={mode or 'all'}, turns={len(turns)}",
+    )
+    return {
+        "turns": turns,
+        "turnCount": len(turns),
+        "howToUse": "이전에 한 말을 반복해서 묻지 않도록 확인하는 데만 쓰세요.",
     }
 
 
@@ -445,8 +924,22 @@ def admin_sessions(
     x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
 ):
     require_admin_key(key, x_admin_key)
-    students = db.list_students()
-    return {"students": students}
+    return {"students": db.list_students(), "modeSessions": db.list_sessions()}
+
+
+@app.get("/api/admin/diagnoses")
+def admin_diagnoses(
+    studentId: Optional[str] = None,
+    key: Optional[str] = None,
+    x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
+):
+    """모드별 진단 결과(관찰력 수준, 오프로딩 단계 등) 원본."""
+    require_admin_key(key, x_admin_key)
+    rows = db.get_all_diagnoses()
+    if studentId:
+        sid = sanitize_id(studentId)
+        rows = [r for r in rows if r["student_id"] == sid]
+    return {"diagnoses": rows}
 
 
 @app.get("/api/admin/tool-calls")
@@ -455,8 +948,7 @@ def admin_tool_calls(
     key: Optional[str] = None,
     x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
 ):
-    """에이전트가 '학생 관찰 이력 조회'와 '교육학 안내 조회'를 부른 원본 기록이다.
-    최종 답변 문장과 별개로, 도구를 실제로 얼마나 썼는지 연구자가 확인할 수 있다."""
+    """Agent가 /api/tools/*를 부른 원본 기록. 도구를 실제로 얼마나 썼는지 확인할 수 있다."""
     require_admin_key(key, x_admin_key)
     student_id = sanitize_id(studentId) if studentId else None
     calls = db.get_tool_calls(student_id) if student_id else db.get_all_tool_calls()
@@ -471,7 +963,9 @@ def admin_export(
 ):
     require_admin_key(key, x_admin_key)
     students = db.list_students()
-    if not students:
+    diagnoses = db.get_all_diagnoses()
+    mode_sessions = db.list_sessions()
+    if not students and not diagnoses:
         raise HTTPException(404, "저장된 대화 기록이 없습니다.")
 
     rows_by_student = {s["student_id"]: db.get_student_history(s["student_id"]) for s in students}
@@ -485,7 +979,9 @@ def admin_export(
             headers={"Content-Disposition": 'attachment; filename="autumn-leaf-chat-all-students.docx"'},
         )
 
-    buf = reports.build_admin_xlsx(students, rows_by_student, tool_calls)
+    buf = reports.build_admin_xlsx(
+        students, rows_by_student, tool_calls, diagnoses=diagnoses, mode_sessions=mode_sessions
+    )
     return Response(
         content=buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

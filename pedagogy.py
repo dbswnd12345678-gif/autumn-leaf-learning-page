@@ -5,7 +5,7 @@ pedagogy_db.json(교사 발문을 AI 단계 D~G에 대응한 규칙)을 읽고 �
   1. score_observation(...) - 학생 관찰문 한 턴을 가벼운 규칙으로 채점한다
      (객관성, 관찰 다양성, 공간 범위, 과학 용어 수). 지금은 MVP용 키워드 채점이며,
      이후 더 나은 분석으로 교체할 수 있다. 에이전트가 당장 반응할 근거를 주기 위해 둔다.
-  2. match_pedagogy_rule(context) - 이번 문장을 중심에 두고, 과거 이력 요약으로
+  2. match_pedagogy_rule(context) - 이번 문장과 과거 이력 요약으로
      이미 한 관찰은 빼면서 교사 발문 규칙 하나를 고른다.
 """
 
@@ -168,11 +168,11 @@ def format_history_summary(history: Optional[list[dict[str, Any]]]) -> str:
     """에이전트에게 줄 이력 요약 문장."""
     info = summarize_history(history)
     if info["turn_count"] == 0:
-        return "이 학생은 과거 관찰 기록이 없습니다. 오늘이 첫 관찰입니다. 이번 문장만 중심에 두고 안내하세요."
+        return "이 학생은 과거 관찰 기록이 없습니다. 오늘이 첫 관찰입니다."
 
     lines = [
         f"지금까지 총 {info['turn_count']}번 관찰을 기록했습니다.",
-        "이 이력은 이미 한 관찰을 반복 제안하지 않기 위한 필터입니다. 답변의 중심은 반드시 이번 관찰문입니다.",
+        "이 이력은 이미 한 관찰을 반복 제안하지 않기 위한 필터입니다.",
     ]
     if info["already_quantified"]:
         lines.append("이력에 숫자·개수·측정 표현이 있습니다. 정성관찰로 되돌리지 마세요.")
@@ -226,7 +226,7 @@ def match_pedagogy_rule(
     aiStage는 안내 성격(자유관찰 / 방법안내 / 피드백 / 심화)을 나타내는 라벨일 뿐,
     모든 학생이 반드시 밟아야 하는 순서가 아니다.
 
-    매칭은 이번 관찰문을 중심에 두고, 이력 요약으로 이미 한 관찰은 뺀다.
+    매칭은 이번 관찰문과 이력 요약으로 이미 한 관찰은 뺀다.
     유일한 예외는 학생의 첫 메시지(turn_index == 0)로, 개방형 자유관찰 규칙을 낸다.
     """
     rules = load_rules()

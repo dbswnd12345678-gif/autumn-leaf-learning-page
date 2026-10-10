@@ -27,7 +27,14 @@ HEADERS = [
     "공간 범위",
     "적용 규칙 ID",
     "AI 단계",
+    "모드",
+    "입력 종류",
+    "지원 수준",
+    "호출한 도구",
+    "도구 누락",
 ]
+
+MODE_LABELS = {"assess": "관찰력 진단", "offload": "오프로딩 진단", "support": "AI Agent 지원"}
 
 
 def sanitize_sheet_name(name: str) -> str:
@@ -52,6 +59,11 @@ def _row_values(row: dict[str, Any]) -> list[Any]:
         row.get("spatial_scope"),
         row.get("pedagogy_rule_id"),
         row.get("ai_stage"),
+        MODE_LABELS.get(row.get("mode"), row.get("mode")),
+        row.get("input_kind"),
+        row.get("support_level"),
+        row.get("tools_called"),
+        ("예" if row.get("tool_skipped") else "") if row.get("tool_skipped") is not None else "",
     ]
 
 
@@ -104,6 +116,12 @@ TOOL_CALL_HEADERS = [
 TOOL_NAME_LABELS = {
     "pedagogy_hint": "교육학 안내 조회",
     "history_lookup": "학생 관찰 이력 조회",
+    "observation_assessment": "관찰력 평가 데이터 조회",
+    "offloading_diagnosis": "오프로딩 단계 진단 조회",
+    "support_methods": "오프로딩 단계별 지원방법 조회",
+    "observation_methods": "관찰 유형 및 방법 조회",
+    "dialogue_log": "개인별 대화 로그 조회",
+    "tool_skipped": "도구 호출 누락(자동 기록)",
 }
 
 
@@ -131,13 +149,114 @@ def _add_tool_calls_sheet(wb: Workbook, tool_calls: list[dict[str, Any]]):
     return ws
 
 
+DIAGNOSIS_HEADERS = [
+    "학번", "모드", "종류", "기록 시각(UTC)", "관찰력 수준", "오프로딩 단계", "수준/단계 이름",
+    "점수", "제출 문장 수", "관찰 문장 수", "범주 다양성", "정량 문장 수", "추론 비율",
+    "AI 요청 수", "관찰 대행 비율", "AI 반영 비율", "사진 일치율", "수준 판정 출처", "LLM 판정 상태",
+    "LLM 판정 근거", "도구 누락 턴 수", "지원 수준",
+]
+
+
+def _add_diagnoses_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
+    ws = wb.create_sheet(title="진단결과")
+    ws.append(DIAGNOSIS_HEADERS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for d in diagnoses:
+        p = d.get("payload") or {}
+        judge = p.get("judge") or {}
+        ws.append(
+            [
+                d.get("student_id"),
+                MODE_LABELS.get(d.get("mode"), d.get("mode")),
+                d.get("kind"),
+                d.get("created_at"),
+                p.get("level"),
+                p.get("stage"),
+                p.get("levelLabel") or p.get("stageLabel"),
+                p.get("score"),
+                p.get("sentenceCount") if p.get("sentenceCount") is not None else p.get("submittedSentenceCount"),
+                p.get("observationSentenceCount"),
+                p.get("varietyCount"),
+                p.get("quantitySentenceCount"),
+                p.get("inferenceRatio"),
+                p.get("requestCount"),
+                p.get("delegateShare"),
+                p.get("reuseRatio"),
+                judge.get("photoMatchRate"),
+                p.get("finalLevelSource") or p.get("finalStageSource") or p.get("method"),
+                p.get("judgeStatus"),
+                judge.get("rationale"),
+                p.get("toolSkippedTurns"),
+                ", ".join(str(x) for x in (p.get("supportLevels") or [])),
+            ]
+        )
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws)
+    return ws
+
+
+def _add_mode_sessions_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
+    ws = wb.create_sheet(title="모드세션")
+    ws.append(["학번", "모드", "시작(UTC)", "마감(UTC)", "제출(UTC)", "자동 제출", "사진", "제출 문장 수"])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for m in mode_sessions:
+        ws.append(
+            [
+                m.get("student_id"),
+                MODE_LABELS.get(m.get("mode"), m.get("mode")),
+                m.get("started_at"),
+                m.get("deadline_at"),
+                m.get("submitted_at"),
+                "예" if m.get("auto_submitted") else "아니오",
+                ", ".join(m.get("images") or []),
+                len(m.get("sentences") or []),
+            ]
+        )
+    _autosize(ws)
+    return ws
+
+
+def _add_sentences_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
+    ws = wb.create_sheet(title="제출문장")
+    ws.append(["학번", "모드", "번호", "시작 후 경과(초)", "관찰 문장"])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for m in mode_sessions:
+        for i, sent in enumerate(m.get("sentences") or [], start=1):
+            ws.append(
+                [
+                    m.get("student_id"),
+                    MODE_LABELS.get(m.get("mode"), m.get("mode")),
+                    i,
+                    sent.get("t") if isinstance(sent, dict) else None,
+                    sent.get("text") if isinstance(sent, dict) else str(sent),
+                ]
+            )
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws)
+    return ws
+
+
 def build_admin_xlsx(
     summary: list[dict[str, Any]],
     rows_by_student: dict[str, list[dict[str, Any]]],
     tool_calls: list[dict[str, Any]] | None = None,
+    diagnoses: list[dict[str, Any]] | None = None,
+    mode_sessions: list[dict[str, Any]] | None = None,
 ) -> bytes:
     wb = Workbook()
     wb.remove(wb.active)
+    if diagnoses:
+        _add_diagnoses_sheet(wb, diagnoses)
+    if mode_sessions:
+        _add_mode_sessions_sheet(wb, mode_sessions)
+        _add_sentences_sheet(wb, mode_sessions)
     ws_summary = wb.create_sheet(title="학생목록")
     ws_summary.append(
         [
