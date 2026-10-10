@@ -106,6 +106,32 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def backup_bytes() -> bytes:
+    """Return a consistent snapshot of the database file (read-only for the live DB).
+
+    Uses SQLite's online backup API, so it is safe while the server is writing.
+    """
+    import tempfile
+
+    src = sqlite3.connect(f"file:{DB_PATH.as_posix()}?mode=ro", uri=True)
+    tmp_dir = tempfile.mkdtemp(prefix="obs-backup-")
+    tmp_path = Path(tmp_dir) / "observations.db"
+    try:
+        dst = sqlite3.connect(tmp_path)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+        return tmp_path.read_bytes()
+    finally:
+        src.close()
+        try:
+            tmp_path.unlink()
+            Path(tmp_dir).rmdir()
+        except OSError:
+            pass
+
+
 def init_db() -> None:
     conn = get_connection()
     try:

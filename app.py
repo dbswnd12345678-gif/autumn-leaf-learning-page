@@ -989,6 +989,21 @@ def admin_export(
     )
 
 
+@app.get("/api/admin/db-backup")
+def admin_db_backup(
+    key: Optional[str] = None,
+    x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
+):
+    """observations.db의 읽기 전용 스냅샷을 내려준다. 서버 데이터는 바꾸지 않는다."""
+    require_admin_key(key, x_admin_key)
+    stamp = utc_now().strftime("%Y%m%d-%H%M%S")
+    return Response(
+        content=db.backup_bytes(),
+        media_type="application/vnd.sqlite3",
+        headers={"Content-Disposition": f'attachment; filename="observations-{stamp}.db"'},
+    )
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
