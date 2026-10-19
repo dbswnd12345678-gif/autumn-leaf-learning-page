@@ -81,11 +81,15 @@ ALLOWED_IMAGES = [
     "l3-01.jpg", "l3-02.jpg", "l3-03.jpg", "l3-04.jpg", "l3-05.jpg",
     "l4-01.jpg", "l4-02.jpg", "l4-03.jpg", "l4-04.jpg", "l4-05.jpg",
 ]
-# 모드마다 서로 다른 사진 한 장을 쓴다. 세 장은 비슷한 난이도의 단일 단풍잎이다.
+# 모드(탭)마다 사진 5장 중에서 골라 관찰한다. 20장 중 15장을 쓰고, 탭끼리 난이도가 비슷하도록
+# 같은 종류를 탭마다 한 장씩 넣었다. 목록 안의 순서는 비슷한 사진이 이어지지 않게 섞은 것이다.
+#   종류 A: 빨강·주황 단풍잎 한 장    종류 B: 은행잎         종류 C: 잎 여러 장·나뭇가지 배경
+#   종류 D: 색이 섞여 변하는 잎 한 장  종류 E: 초록·노랑 단풍잎 한 장
+# 쓰지 않는 사진: l1-01, l2-02, l2-04, l3-04, l3-05
 MODE_IMAGES = {
-    "assess": ["l2-05.jpg"],
-    "offload": ["l2-03.jpg"],
-    "support": ["l2-01.jpg"],
+    "assess": ["l2-05.jpg", "l1-04.jpg", "l3-01.jpg", "l1-03.jpg", "l4-05.jpg"],   # A, B, C, D, E
+    "offload": ["l2-03.jpg", "l1-02.jpg", "l4-04.jpg", "l3-02.jpg", "l4-03.jpg"],  # A, D, B, C, E
+    "support": ["l2-01.jpg", "l1-05.jpg", "l3-03.jpg", "l4-01.jpg", "l4-02.jpg"],  # A, B, C, D, E
 }
 
 if not (ANYTHINGLLM_BASE_URL and ANYTHINGLLM_API_KEY):
@@ -372,6 +376,8 @@ class ChatRequest(BaseModel):
     mode: str
     # question: 학생이 AI에게 한 질문·요청, sentence: 탭 3에서 입력한 관찰 문장
     kind: str = "question"
+    # 학생이 지금 보고 있는 사진 파일 이름. 이 탭의 사진 목록에 없으면 첫 사진으로 본다.
+    image: Optional[str] = None
 
 
 @app.post("/api/chat")
@@ -397,7 +403,10 @@ async def chat(req: ChatRequest):
     if not slug:
         raise HTTPException(500, "이 모드의 AnythingLLM 워크스페이스 slug가 설정되지 않았습니다.")
 
-    images = [img for img in session.get("images", []) if img in ALLOWED_IMAGES][:1]
+    # 학생이 고른 사진 한 장을 AI에게 보여 준다. 이 탭에서 허용한 사진만 받는다.
+    mode_images = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
+    chosen = req.image if req.image in mode_images else (mode_images[0] if mode_images else None)
+    images = [chosen] if chosen else []
     attachments = [a for a in (load_image_attachment(name) for name in images) if a]
 
     support_level: Optional[int] = None
@@ -503,10 +512,8 @@ async def run_judge(
         judge = diagnosis.extract_json(text)
         if judge is None:
             raise ValueError("판정 응답에서 JSON을 읽지 못했습니다.")
-        if mode == "assess":
-            merged = diagnosis.merge_observation_judge(keyword_payload, judge)
-        else:
-            merged = diagnosis.merge_offloading_judge(keyword_payload, judge)
+        # 탭 1(assess)은 위에서 Agent 기록 확인 후 이미 반환했으므로 여기에는 오프로딩만 온다.
+        merged = diagnosis.merge_offloading_judge(keyword_payload, judge)
         merged["judgeStatus"] = "done"
         db.save_diagnosis(student_id, mode, mode_kind(mode), merged)
     except Exception as exc:  # noqa: BLE001 - 채점 실패가 제출을 막으면 안 된다.
@@ -535,11 +542,19 @@ async def submit(req: SubmitRequest, background: BackgroundTasks):
         return {"ok": True, "alreadySubmitted": True}
 
     sentences = diagnosis.normalize_sentences(req.sentences)
+    # 문장마다 학생이 보고 있던 사진을 적어 둔다. 이 탭의 사진이 아니면 지운다.
+    mode_images = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
+    for s in sentences:
+        if s.get("image") not in mode_images:
+            s["image"] = None
     if not db.submit_session(student_id, mode, sentences, req.auto):
         return {"ok": True, "alreadySubmitted": True}
 
     turns = db.get_mode_observations(student_id, mode)
-    image_names = session.get("images", [])
+    # LLM 판정에는 학생이 실제로 문장을 쓴 사진만 보낸다. 사진 정보가 없으면 시작할 때 저장한 사진을 쓴다.
+    image_names = diagnosis.images_used(sentences) or [
+        img for img in session.get("images", []) if img in ALLOWED_IMAGES
+    ][:1]
 
     if mode == "assess":
         payload = diagnosis.score_observation(sentences)
@@ -553,7 +568,9 @@ async def submit(req: SubmitRequest, background: BackgroundTasks):
         payload["toolSkippedTurns"] = sum(1 for t in turns if t.get("tool_skipped"))
         payload["supportLevels"] = sorted({t["support_level"] for t in turns if t.get("support_level")})
 
-    payload["judgeStatus"] = "pending" if judge_slug_for(mode) else "skipped"
+    # 탭 1은 제출 문장이 없으면 Agent가 판정할 것이 없으므로 키워드 결과(지수 0)만 남긴다.
+    needs_judge = bool(judge_slug_for(mode)) and not (mode == "assess" and not sentences)
+    payload["judgeStatus"] = "pending" if needs_judge else "skipped"
     db.save_diagnosis(student_id, mode, mode_kind(mode), payload)
 
     if payload["judgeStatus"] == "pending":
@@ -596,23 +613,30 @@ def tool_observation_criteria(
         result_summary="진단 기준 조회",
     )
     return {
-        "categories": [
-            {"id": c["id"], "label": c["label"], "definition": c["definition"]}
-            for c in rubric["categories"]
-        ],
-        "levels": [
-            {"level": l["level"], "label": l["label"], "meaning": l["meaning"]}
-            for l in rubric["levels"]
-        ],
-        "photoMatchValues": {
-            "match": "사진에서 확인되는 문장이 대부분이다",
-            "partly": "일부만 사진과 맞다",
-            "mismatch": "사진과 다른 내용이 많다",
-            "unknown": "사진이 모호하거나 사진을 볼 수 없어 판단할 수 없다",
+        "rubricVersion": rubric.get("version"),
+        "informationUnit": rubric["informationUnit"],
+        "classification": {
+            "fixed": rubric["classification"]["fixed"],
+            "dimensions": rubric["classification"]["dimensions"],
+            "examples": rubric["classification"]["examples"],
         },
+        "outOfScope": rubric["outOfScope"],
+        "observationLevel": {
+            "definition": rubric["observationLevel"]["definition"],
+            "levels": rubric["observationLevel"]["levels"],
+            "note": rubric["observationLevel"]["note"],
+        },
+        "objectivity": {
+            "scale": rubric["objectivity"]["scale"],
+            "scoringNotes": rubric["objectivity"]["scoringNotes"],
+        },
+        "photoMatchValues": rubric["photoMatchValues"],
+        "recordFormat": rubric["recordFormat"],
         "howToUse": (
-            "학생 문장을 범주별로 나누고 사진과 비교한 뒤 level(1~3)을 정해 "
-            "observation-result 로 기록하세요. 학생에게 답변하지 마세요."
+            "제출된 문장마다 정보 단위로 나누고, 단위마다 객관도(0~3)와 측정, 비교, 범위를 정하세요. "
+            "시각 이외 감각이나 시간 흐름이 들어간 단위는 OOS로 표시하세요. 문장마다 LE를 정하세요. "
+            "그 결과를 recordFormat 형식의 messages 한 줄로 observation-result 로 기록하세요. "
+            "OQ_A, D, 수준 계산은 서버가 하니 직접 계산하지 마세요. 학생에게 답변하지 마세요."
         ),
     }
 
@@ -621,6 +645,9 @@ class ObservationResult(BaseModel):
     """Agent Flow가 보내는 값은 모두 문자열일 수 있어 느슨하게 받는다."""
 
     studentId: str
+    # 문장별 분류. 형식은 observation_rubric.json의 recordFormat 참고.
+    messages: Any = ""
+    # 이전 형식(level만 기록) 호환용. messages가 비어 있을 때만 쓴다.
     level: Any = None
     categories: Any = ""
     photoMatch: Any = "unknown"
@@ -632,49 +659,65 @@ def tool_observation_result(
     body: ObservationResult,
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """관찰력 진단 결과 기록. Agent가 채점한 수준을 진단 결과(diagnoses)에 합쳐 저장한다."""
+    """관찰력 진단 결과 기록. Agent가 분류한 문장별 정보를 받아 서버가 지수를 계산해 diagnoses에 저장한다."""
     require_tool_key(x_tool_key)
     student_id = tool_student(body.studentId)
-
-    try:
-        level = int(str(body.level).strip())
-    except (TypeError, ValueError):
-        raise HTTPException(400, "level은 1, 2, 3 중 하나여야 합니다.")
-    if level not in (1, 2, 3):
-        raise HTTPException(400, "level은 1, 2, 3 중 하나여야 합니다.")
 
     record = db.get_diagnosis(student_id, "assess")
     if not record:
         raise HTTPException(404, "제출된 관찰력 진단이 없습니다.")
-
-    rubric = diagnosis.load_knowledge("observation_rubric")
-    known_ids = {c["id"] for c in rubric["categories"]}
-    raw_cats = body.categories if isinstance(body.categories, list) else str(body.categories or "").split(",")
-    categories = [str(c).strip() for c in raw_cats if str(c).strip() in known_ids]
+    stored = dict(record["payload"])
 
     match = str(body.photoMatch or "unknown").strip().lower()
-    rate = {"match": 1.0, "partly": 0.5, "mismatch": 0.0}.get(match)
+    if match not in ("match", "partly", "mismatch", "unknown"):
+        match = "unknown"
+    rationale = str(body.rationale or "")
 
-    judge = {
-        "level": level,
-        "rationale": str(body.rationale or "")[:500],
-        "categories": categories,
-        "photoMatch": match,
-        "photoMatchRate": rate,
-        "recordedBy": "agent",
-    }
-    keyword_payload = dict(record["payload"])
-    merged = diagnosis.merge_observation_judge(keyword_payload, judge)
+    parsed = diagnosis.parse_agent_messages(body.messages)
+    legacy_level: Optional[int] = None
+    try:
+        legacy_level = int(str(body.level).strip())
+    except (TypeError, ValueError):
+        legacy_level = None
+
+    if parsed:
+        merged = diagnosis.apply_agent_observation(stored, parsed, match, rationale)
+        sentence_count = merged.get("sentenceCount", 0)
+        recorded = [i for i in parsed if 1 <= i <= sentence_count]
+        # 이번 호출까지 합쳐서 Agent가 아직 기록하지 않은 문장 번호
+        missing = [
+            i for i, m in enumerate(merged.get("messages", []), start=1) if m.get("source") != "agent"
+        ]
+        summary = (
+            f"기록 완료: 문장 {len(recorded)}/{sentence_count}, "
+            f"OQ_A {stored.get('oqA')} -> {merged.get('oqA')}, D={merged.get('D')}, 수준={merged.get('level')}"
+        )
+        response: dict[str, Any] = {
+            "ok": True,
+            "recorded": True,
+            "recordedCount": len(recorded),
+            "sentenceCount": sentence_count,
+            "missingIndexes": missing,
+        }
+    elif legacy_level in (1, 2, 3):
+        merged = diagnosis.apply_legacy_level(stored, legacy_level, match, rationale)
+        summary = f"이전 형식(level만) 기록: 수준 {stored.get('level')} -> {legacy_level}"
+        response = {"ok": True, "recorded": True, "legacy": True}
+    else:
+        raise HTTPException(
+            400,
+            "messages 형식을 읽지 못했습니다. 예: 1:2:2-정성-단수-부분,2-정성-단수-부분;2:1:3-정량-단수-전체;3:1:OOS-감각",
+        )
+
     merged["judgeStatus"] = "done"
     db.save_diagnosis(student_id, "assess", mode_kind("assess"), merged)
-
     db.log_tool_call(
         student_id=student_id,
         tool_name="observation_result",
-        input_text=f"level={level}, categories={','.join(categories)}, photoMatch={match}",
-        result_summary=f"기록 완료 (키워드 수준 {keyword_payload.get('level')} -> 최종 {level})",
+        input_text=f"messages={str(body.messages)[:300]}, photoMatch={match}",
+        result_summary=summary,
     )
-    return {"ok": True, "recorded": True, "level": level}
+    return response
 
 
 @app.get("/api/tools/observation-assessment")
@@ -692,18 +735,17 @@ def tool_observation_assessment(
 
     summary = None
     if result:
-        obs_ids = rubric["observationCategoryIds"]
-        used = result.get("categoriesUsed", [])
         summary = {
             "level": result.get("level"),
             "levelLabel": result.get("levelLabel"),
-            "score": result.get("score"),
+            "oqA": result.get("oqA"),
+            "diversityD": result.get("D"),
+            "typesUsed": result.get("typesUsed"),
+            "typesMissing": result.get("typesMissing"),
             "sentenceCount": result.get("sentenceCount"),
-            "varietyCount": result.get("varietyCount"),
-            "categoriesUsed": used,
-            "categoriesMissing": [c for c in obs_ids if c not in used],
-            "quantitySentenceCount": result.get("quantitySentenceCount"),
-            "inferenceRatio": result.get("inferenceRatio"),
+            "outOfScopeCounts": result.get("outOfScopeCounts"),
+            "quantitativeMessageCount": result.get("quantitativeMessageCount"),
+            "method": result.get("method"),
             "photoMatchRate": (result.get("judge") or {}).get("photoMatchRate"),
             "rationale": (result.get("judge") or {}).get("rationale"),
         }
@@ -712,22 +754,20 @@ def tool_observation_assessment(
         student_id=student_id,
         tool_name="observation_assessment",
         result_summary=(
-            f"level={summary['level']}, score={summary['score']}" if summary else "진단 없음"
+            f"level={summary['level']}, oqA={summary['oqA']}, D={summary['diversityD']}"
+            if summary
+            else "진단 없음"
         ),
     )
     return {
         "assessment": summary,
         "found": summary is not None,
         "criteria": {
-            "categories": [
-                {"id": c["id"], "label": c["label"], "definition": c["definition"]}
-                for c in rubric["categories"]
-            ],
-            "levels": rubric["levels"],
+            "observationTypes": diagnosis.all_type_ids(),
+            "levels": rubric["levelThresholds"]["levels"],
         },
-        "howToUse": "이 학생의 관찰력 수준과 아직 쓰지 않은 범주를 파악하는 데만 쓰세요. 학생에게 점수를 말하지 마세요.",
+        "howToUse": "이 학생의 관찰력 수준과 아직 쓰지 않은 관찰 유형을 파악하는 데만 쓰세요. 학생에게 점수를 말하지 마세요.",
     }
-
 
 @app.get("/api/tools/offloading-diagnosis")
 def tool_offloading_diagnosis(
@@ -813,32 +853,42 @@ def tool_observation_methods(
     require_tool_key(x_tool_key)
     student_id = tool_student(studentId)
 
-    # 탭 3에서 지금까지 입력한 관찰 문장으로 이미 쓴 범주를 센다.
+    # 탭 3에서 지금까지 입력한 관찰 문장으로 이미 쓴 관찰 유형(측정 x 비교 x 범위)을 센다.
     rows = [
         r for r in db.get_mode_observations(student_id, "support") if r.get("input_kind") == "sentence"
     ]
     sentences = [{"text": r["question"], "t": None} for r in rows if r.get("question")]
-    used_now = diagnosis.score_observation(sentences)["categoriesUsed"] if sentences else []
+    now = diagnosis.score_observation(sentences) if sentences else None
+    used_now = (now or {}).get("typesUsed", [])
+    # 가장 최근 문장에 시각 이외 감각이나 시간 흐름이 있으면 바꾸어 쓰도록 안내한다.
+    latest_flags = ((now or {}).get("messages") or [{}])[-1].get("outOfScope", [])
 
-    # 탭 1에서 쓰지 못한 범주를 먼저 안내하도록 순서를 정한다.
+    # 탭 1에서 쓰지 않은 유형을 먼저 안내하도록 순서를 정한다.
     assess = (db.get_diagnosis(student_id, "assess") or {}).get("payload", {})
-    missed_before = set(assess.get("categoriesUsed") or [])
+    used_before = set(assess.get("typesUsed") or [])
     remaining = diagnosis.remaining_observation_types(used_now)
-    remaining.sort(key=lambda t: t["id"] in missed_before)
+    remaining.sort(key=lambda t: t["id"] in used_before)
 
     types = diagnosis.load_knowledge("observation_types")
+    guidance = types.get("outOfScopeGuidance", {})
     db.log_tool_call(
         student_id=student_id,
         tool_name="observation_methods",
-        result_summary=f"used={','.join(used_now)}; offered={','.join(t['id'] for t in remaining[:3])}",
+        result_summary=(
+            f"used={','.join(used_now)}; offered={','.join(t['id'] for t in remaining[:3])}"
+            + (f"; outOfScope={','.join(latest_flags)}" if latest_flags else "")
+        ),
     )
     return {
-        "usedCategories": used_now,
+        "usedTypes": used_now,
         "suggestedTypes": remaining[:3],
+        "outOfScopeGuidance": {f: guidance.get(f) for f in latest_flags} or None,
         "avoid": types["avoid"],
-        "howToUse": "제안은 하나만 고르세요. 학생이 직접 사진에서 찾고 한 문장 쓰게 하세요.",
+        "howToUse": (
+            "outOfScopeGuidance가 있으면 그것을 먼저 쓰세요(이번 문장이 사진으로 확인할 수 없는 서술이라는 뜻). "
+            "없으면 suggestedTypes에서 하나만 고르세요. 학생이 직접 사진에서 찾고 한 문장 쓰게 하세요."
+        ),
     }
-
 
 @app.get("/api/tools/dialogue-log")
 def tool_dialogue_log(

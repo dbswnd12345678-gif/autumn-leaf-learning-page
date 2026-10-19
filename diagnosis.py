@@ -3,13 +3,13 @@
 
 하는 일:
   - knowledge/*.json(코드북, 지원 규칙표)을 읽는다.
-  - 탭 1(관찰력): 관찰 문장을 키워드로 범주 분류하고 점수·수준(1~3)을 계산한다.
+  - 탭 1(관찰력): 문장을 정보 단위로 나눠 객관도(0~3), 측정/비교/범위, 범위 밖 표시를 정하고 LE x ΣDO, 다양도 D, 지수 OQ_A, 수준(1~3)을 계산한다.
   - 탭 2(오프로딩): 학생 요청 유형, AI 답변이 제출 문장에 반영된 정도로 단계(1~4)를 계산한다.
   - 탭 3(지원): 관찰력 수준 x 오프로딩 단계로 지원 수준(1~3)을 정한다.
   - LLM 판정용 프롬프트를 만들고, 돌아온 JSON을 안전하게 읽는다.
 
-키워드 채점은 항상 계산해 두는 기본값이다. LLM 판정이 성공하면 수준/단계는
-LLM 값을 우선하되, 두 결과를 모두 저장해 연구자가 비교할 수 있게 한다.
+키워드 채점은 항상 계산해 두는 기본값이다. LLM(Agent) 판정이 성공하면 그 값을 우선하되,
+키워드 결과도 함께 저장해 연구자가 비교할 수 있게 한다.
 """
 
 from __future__ import annotations
@@ -42,20 +42,42 @@ def reload_knowledge() -> None:
 # ---------------------------------------------------------------------------
 
 def normalize_sentences(raw: list[Any]) -> list[dict[str, Any]]:
-    """제출된 문장 목록을 [{text, t}] 형태로 맞춘다. t는 시작 후 경과 초(없으면 None)."""
+    """제출된 문장 목록을 [{text, t, image}] 형태로 맞춘다.
+
+    t는 시작 후 경과 초(없으면 None), image는 학생이 그 문장을 쓸 때 보던 사진 파일 이름(없으면 None).
+    image가 이 탭의 사진인지는 호출하는 쪽(app.py)에서 확인한다.
+    """
     result: list[dict[str, Any]] = []
     for item in raw or []:
+        image = None
         if isinstance(item, str):
             text, t = item, None
         elif isinstance(item, dict):
             text, t = item.get("text", ""), item.get("t")
+            image = item.get("image")
         else:
             continue
         text = str(text or "").strip()
         if not text:
             continue
-        result.append({"text": text[:500], "t": t if isinstance(t, (int, float)) else None})
+        result.append(
+            {
+                "text": text[:500],
+                "t": t if isinstance(t, (int, float)) else None,
+                "image": image if isinstance(image, str) else None,
+            }
+        )
     return result[:60]
+
+
+def images_used(sentences: list[dict[str, Any]]) -> list[str]:
+    """문장에 적힌 사진 파일 이름을 처음 나온 순서대로, 중복 없이 돌려준다."""
+    seen: list[str] = []
+    for s in sentences:
+        name = s.get("image")
+        if name and name not in seen:
+            seen.append(name)
+    return seen
 
 
 def _bigrams(text: str) -> set[str]:
@@ -64,96 +86,337 @@ def _bigrams(text: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# 탭 1: 관찰력
+# 탭 1: 관찰력 진단 (관찰의 수준 LE, 객관도 DO, 다양도 D, 관찰력 지수 OQ_A)
+#
+# 문장(채팅 메시지 한 번) -> 정보 단위로 나눔 -> 단위마다 객관도(0~3)와 측정/비교/범위 분류,
+# 범위 밖(시각 이외 감각, 시간 흐름) 표시 -> 서버가 지수를 계산한다.
+# 분류는 Agent가 기록 Flow로 보내 주고, 기록이 없으면 아래 키워드 규칙으로 대신한다.
 # ---------------------------------------------------------------------------
 
-_NUMBER = re.compile(r"\d+(\.\d+)?|[한두세네다섯여섯일곱여덟아홉열]\s*(개|갈래|장|줄|쌍)")
+_NUMBER = re.compile(r"\d+(\.\d+)?|[한두세네다섯여섯일곱여덟아홉열]\s*(개|갈래|장|줄|쌍|배)")
+_CLAUSE_SPLIT = re.compile(r"[.!?,;\n]+|\s+(?:그리고|그런데|하지만|그러나)\s+")
+
+MEASUREMENT_KO = {"qualitative": "정성", "quantitative": "정량"}
+COMPARISON_KO = {"single": "단수", "multiple": "다수"}
+SCOPE_KO = {"whole": "전체", "part": "부분"}
+
+# Agent가 쓴 표기 -> (차원, 값). 영어 표기도 받는다.
+_UNIT_TOKENS: dict[str, tuple[str, str]] = {
+    "정성": ("measurement", "qualitative"), "qual": ("measurement", "qualitative"),
+    "qualitative": ("measurement", "qualitative"),
+    "정량": ("measurement", "quantitative"), "quant": ("measurement", "quantitative"),
+    "quantitative": ("measurement", "quantitative"),
+    "단수": ("comparison", "single"), "single": ("comparison", "single"),
+    "다수": ("comparison", "multiple"), "multi": ("comparison", "multiple"),
+    "multiple": ("comparison", "multiple"),
+    "전체": ("scope", "whole"), "whole": ("scope", "whole"),
+    "부분": ("scope", "part"), "part": ("scope", "part"),
+}
 
 
-def classify_sentence(text: str, rubric: dict[str, Any]) -> list[str]:
-    cats: list[str] = []
-    for cat in rubric["categories"]:
-        if any(k in text for k in cat["keywords"]):
-            cats.append(cat["id"])
-    # 숫자나 "두 개" 같은 수량 표현이 있으면 수량 범주로 본다.
-    if _NUMBER.search(text) and "quantity" not in cats:
-        cats.append("quantity")
-    return cats
+def type_id(measurement: str, comparison: str, scope: str) -> str:
+    """관찰 유형 id. 예: 정성-단수-부분"""
+    return f"{MEASUREMENT_KO[measurement]}-{COMPARISON_KO[comparison]}-{SCOPE_KO[scope]}"
+
+
+def all_type_ids() -> list[str]:
+    return [t["id"] for t in load_knowledge("observation_rubric")["diversity"]["types"]]
+
+
+def make_unit(
+    do: int,
+    measurement: Optional[str] = None,
+    comparison: Optional[str] = None,
+    scope: Optional[str] = None,
+    out_of_scope: Optional[str] = None,
+) -> dict[str, Any]:
+    if out_of_scope:
+        return {"do": 0, "measurement": None, "comparison": None, "scope": None, "outOfScope": out_of_scope}
+    if do <= 0:
+        return {"do": 0, "measurement": None, "comparison": None, "scope": None, "outOfScope": None}
+    do = min(do, 3)
+    # 객관도 3점은 정량 관찰 사실이다.
+    measurement = "quantitative" if do == 3 else (measurement or "qualitative")
+    return {
+        "do": do,
+        "measurement": measurement,
+        "comparison": comparison or "single",
+        "scope": scope or "whole",
+        "outOfScope": None,
+    }
+
+
+def parse_unit(token: str) -> Optional[dict[str, Any]]:
+    """Agent가 쓴 정보 단위 하나('2-정성-단수-부분', '0', 'OOS-감각')를 읽는다. 읽을 수 없으면 None."""
+    text = re.sub(r"[–—－]", "-", token or "").strip()
+    parts = [p.strip() for p in text.split("-") if p.strip()]
+    if not parts:
+        return None
+    head = parts[0].upper()
+    if head == "OOS":
+        word = (parts[1] if len(parts) > 1 else "").lower()
+        flag = "timeFlow" if word in ("시간", "time", "timeflow") else "nonVisualSense"
+        return make_unit(0, out_of_scope=flag)
+    if not head.isdigit():
+        return None
+    do = int(head)
+    if do > 3:
+        return None
+    chosen: dict[str, str] = {}
+    for p in parts[1:]:
+        hit = _UNIT_TOKENS.get(p.lower())
+        if hit:
+            chosen[hit[0]] = hit[1]
+    return make_unit(do, chosen.get("measurement"), chosen.get("comparison"), chosen.get("scope"))
+
+
+def parse_agent_messages(raw: Any) -> dict[int, dict[str, Any]]:
+    """기록 Flow의 messages 문자열을 {문장번호: {le, units}}로 바꾼다.
+
+    형식: "1:2:2-정성-단수-부분,2-정성-단수-부분;2:1:3-정량-단수-전체;3:1:OOS-감각;4:1:0"
+    따옴표나 줄바꿈이 섞여도 읽을 수 있게 느슨하게 처리한다.
+    """
+    text = str(raw or "").replace("；", ";").replace("：", ":").replace("，", ",")
+    result: dict[int, dict[str, Any]] = {}
+    for chunk in re.split(r"[;\n]+", text):
+        chunk = chunk.strip().strip("\"'` ")
+        if not chunk:
+            continue
+        parts = chunk.split(":", 2)
+        if len(parts) < 2:
+            continue
+        digits = re.sub(r"\D", "", parts[0])
+        if not digits:
+            continue
+        index = int(digits)
+        if len(parts) == 3:
+            le_digits = re.sub(r"\D", "", parts[1])
+            units_raw = parts[2]
+        else:
+            le_digits = ""
+            units_raw = parts[1]
+        le = int(le_digits) if le_digits else 1
+        le = le if 1 <= le <= 10 else 1
+        units = [u for u in (parse_unit(x) for x in units_raw.split(",")) if u]
+        result[index] = {"le": le, "units": units}
+    return result
+
+
+def _has_any(text: str, words: list[str]) -> bool:
+    return any(w in text for w in words)
+
+
+def classify_clause_keyword(clause: str, rubric: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """절 하나를 키워드로 분류해 정보 단위 하나로 만든다. 판단할 거리가 없으면 None."""
+    cfg = rubric["keywordFallback"]
+    if len(clause.strip()) < cfg["minClauseChars"]:
+        return None
+    for flag in rubric["outOfScope"]["flags"]:
+        if _has_any(clause, flag["cueWords"]):
+            return make_unit(0, out_of_scope=flag["id"])
+    if _has_any(clause, cfg["inferenceCues"]):
+        return make_unit(0)
+
+    quantitative = bool(_NUMBER.search(clause)) or _has_any(clause, cfg["quantityWords"])
+    specific = _has_any(clause, cfg["specificWords"])
+    vague = _has_any(clause, cfg["vagueWords"])
+    if quantitative and (specific or vague or "잎" in clause or "갈래" in clause):
+        do = 3
+    elif specific:
+        do = 2
+    elif vague:
+        do = 1
+    else:
+        do = 0
+    comparison = "multiple" if _has_any(clause, cfg["comparisonCues"]) else "single"
+    scope = "part" if _has_any(clause, cfg["partWords"]) else "whole"
+    return make_unit(do, "quantitative" if quantitative else "qualitative", comparison, scope)
+
+
+def classify_message_keyword(text: str, rubric: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """문장(메시지) 하나를 키워드로 분류한다. LE는 판단하지 못해 1로 둔다."""
+    rubric = rubric or load_knowledge("observation_rubric")
+    units = []
+    for clause in _CLAUSE_SPLIT.split(text or ""):
+        unit = classify_clause_keyword(clause, rubric)
+        if unit:
+            units.append(unit)
+    if not units:
+        units = [make_unit(0)]
+    return {"le": 1, "units": units}
+
+
+def level_from_oq(oq: float) -> dict[str, Any]:
+    rows = load_knowledge("observation_rubric")["levelThresholds"]["levels"]
+    chosen = rows[0]
+    for row in rows:
+        if oq >= row["minOQ"]:
+            chosen = row
+    return chosen
+
+
+def compute_observation_index(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """분류가 끝난 문장 목록으로 객관도 합, 다양도 D, OQ_A, 수준을 계산한다.
+
+    messages의 각 원소는 {le, units, ...}이다. 계산 결과를 담은 새 목록과 요약을 돌려준다.
+    범위 밖(outOfScope)으로 표시된 단위와 객관도 0인 단위는 합계와 D에서 뺀다.
+    """
+    computed: list[dict[str, Any]] = []
+    types_used: set[str] = set()
+    total = 0
+    flag_counts: dict[str, int] = {}
+    quantitative_messages = 0
+    for m in messages:
+        units = m.get("units") or []
+        in_scope = [u for u in units if not u.get("outOfScope")]
+        sum_do = sum(int(u.get("do") or 0) for u in in_scope)
+        le = int(m.get("le") or 1)
+        contribution = le * sum_do
+        total += contribution
+        for u in in_scope:
+            if (u.get("do") or 0) > 0:
+                types_used.add(type_id(u["measurement"], u["comparison"], u["scope"]))
+        flags = sorted({u["outOfScope"] for u in units if u.get("outOfScope")})
+        for f in flags:
+            flag_counts[f] = flag_counts.get(f, 0) + 1
+        if any(u.get("measurement") == "quantitative" for u in in_scope if (u.get("do") or 0) > 0):
+            quantitative_messages += 1
+        row = dict(m)
+        row.update({"le": le, "sumDO": sum_do, "contribution": contribution, "outOfScope": flags})
+        computed.append(row)
+
+    d = len(types_used)
+    oq = total * d
+    level_row = level_from_oq(oq)
+    ordered = [t for t in all_type_ids() if t in types_used]
+    return {
+        "messages": computed,
+        "contributionSum": total,
+        "D": d,
+        "typesUsed": ordered,
+        "typesMissing": [t for t in all_type_ids() if t not in types_used],
+        "oqA": oq,
+        "level": level_row["level"],
+        "levelLabel": level_row["label"],
+        "outOfScopeCounts": flag_counts,
+        "outOfScopeMessageCount": sum(1 for m in computed if m["outOfScope"]),
+        "quantitativeMessageCount": quantitative_messages,
+    }
+
+
+def _observation_payload(
+    base_messages: list[dict[str, Any]], method: str, extra: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    summary = compute_observation_index(base_messages)
+    payload = {
+        "method": method,
+        "rubricVersion": load_knowledge("observation_rubric").get("version"),
+        "sentenceCount": len(base_messages),
+        # 아래 세 값은 이전 형식과 같은 이름을 유지한다(엑셀, 탭 3 조회에서 사용).
+        "varietyCount": summary["D"],
+        "quantitySentenceCount": summary["quantitativeMessageCount"],
+        "score": summary["oqA"],
+    }
+    payload.update(summary)
+    if extra:
+        payload.update(extra)
+    return payload
 
 
 def score_observation(sentences: list[dict[str, Any]]) -> dict[str, Any]:
-    """탭 1 키워드 채점. 반환값은 그대로 diagnoses.payload에 들어간다."""
+    """탭 1 키워드 대체 채점. 제출 직후 먼저 저장하고, Agent 기록이 오면 덮어쓴다."""
     rubric = load_knowledge("observation_rubric")
-    obs_ids = set(rubric["observationCategoryIds"])
-    rules = rubric["sentenceRules"]
-    weights = rubric["scoreWeights"]
-
-    per_sentence = []
-    observation_sentences = 0
-    quantity_sentences = 0
-    specific_sentences = 0
-    inference_sentences = 0
-    used_categories: set[str] = set()
-
+    base = []
     for s in sentences:
-        text = s["text"]
-        cats = classify_sentence(text, rubric)
-        obs_cats = [c for c in cats if c in obs_ids]
-        is_inference = "inference" in cats
-        is_observation = bool(obs_cats) and len(text) >= rules["minCharsForObservation"]
-        if is_inference:
-            inference_sentences += 1
-        if is_observation:
-            observation_sentences += 1
-            used_categories.update(obs_cats)
-            if "quantity" in obs_cats:
-                quantity_sentences += 1
-            if len(obs_cats) >= rules["specificMinCategories"] or "quantity" in obs_cats:
-                specific_sentences += 1
-        per_sentence.append(
+        cls = classify_message_keyword(s["text"], rubric)
+        base.append(
             {
-                "text": text,
+                "text": s["text"],
                 "t": s.get("t"),
-                "categories": cats,
-                "isObservation": is_observation,
-                "isInference": is_inference,
+                "image": s.get("image"),
+                "le": cls["le"],
+                "units": cls["units"],
+                "source": "keyword",
             }
         )
+    return _observation_payload(base, "keyword", {"finalLevelSource": "keyword", "judge": None})
 
-    total = len(sentences)
-    specificity_ratio = (specific_sentences / observation_sentences) if observation_sentences else 0.0
-    inference_ratio = (inference_sentences / total) if total else 0.0
 
-    score = (
-        min(observation_sentences, weights["countCap"]) / weights["countCap"] * weights["countWeight"]
-        + min(len(used_categories), weights["varietyCap"]) / weights["varietyCap"] * weights["varietyWeight"]
-        + min(quantity_sentences, weights["quantityCap"]) / weights["quantityCap"] * weights["quantityWeight"]
-        + specificity_ratio * weights["specificityWeight"]
-        + (1 - inference_ratio) * weights["nonInferenceWeight"] * (1 if total else 0)
-    )
-    score = round(score, 1)
+def apply_agent_observation(
+    stored: dict[str, Any],
+    agent_messages: dict[int, dict[str, Any]],
+    photo_match: str,
+    rationale: str,
+) -> dict[str, Any]:
+    """Agent가 기록한 분류를 제출 문장에 입히고 지수를 다시 계산한다.
 
-    level_row = rubric["levels"][0]
-    for row in rubric["levels"]:
-        if score >= row["minScore"]:
-            level_row = row
+    Agent가 빼먹은 문장은 키워드 분류를 그대로 쓰고, 어느 문장이 그런지 source로 남긴다.
+    """
+    messages = [dict(m) for m in stored.get("messages", [])]
+    for i, m in enumerate(messages, start=1):
+        rec = agent_messages.get(i)
+        if rec is None:
+            continue
+        m["le"] = rec["le"]
+        m["units"] = rec["units"]
+        m["source"] = "agent"
+    # 기록을 두 번에 나누어 보내도 합쳐서 센다.
+    covered = sum(1 for m in messages if m.get("source") == "agent")
+    ignored = sorted(i for i in agent_messages if i < 1 or i > len(messages))
 
-    return {
-        "method": "keyword",
-        "sentenceCount": total,
-        "observationSentenceCount": observation_sentences,
-        "varietyCount": len(used_categories),
-        "categoriesUsed": sorted(used_categories),
-        "quantitySentenceCount": quantity_sentences,
-        "specificSentenceCount": specific_sentences,
-        "inferenceSentenceCount": inference_sentences,
-        "inferenceRatio": round(inference_ratio, 2),
-        "score": score,
-        "level": level_row["level"],
-        "levelLabel": level_row["label"],
-        "sentences": per_sentence,
+    if not messages or covered == 0:
+        method = "keyword"
+    elif covered == len(messages):
+        method = "agent"
+    else:
+        method = "mixed"
+
+    rate = {"match": 1.0, "partly": 0.5, "mismatch": 0.0}.get(photo_match)
+    keyword_summary = stored.get("keywordBaseline") or {
+        "oqA": stored.get("oqA"),
+        "D": stored.get("D"),
+        "level": stored.get("level"),
     }
+    judge = {
+        "recordedBy": "agent",
+        "rationale": (rationale or "")[:500],
+        "photoMatch": photo_match,
+        "photoMatchRate": rate,
+        "agentMessageCount": covered,
+        "ignoredIndexes": ignored,
+    }
+    return _observation_payload(
+        messages,
+        method,
+        {
+            "finalLevelSource": method,
+            "judge": judge,
+            "keywordBaseline": keyword_summary,
+            **{k: stored[k] for k in ("sentencesTruncated",) if k in stored},
+        },
+    )
 
+
+def apply_legacy_level(stored: dict[str, Any], level: int, photo_match: str, rationale: str) -> dict[str, Any]:
+    """이전 형식(level만 기록)을 받았을 때의 호환 처리. 지수는 키워드 값을 그대로 두고 수준만 바꾼다."""
+    result = dict(stored)
+    rows = load_knowledge("observation_rubric")["levelThresholds"]["levels"]
+    result["keywordBaseline"] = stored.get("keywordBaseline") or {
+        "oqA": stored.get("oqA"),
+        "D": stored.get("D"),
+        "level": stored.get("level"),
+    }
+    result["level"] = level
+    result["levelLabel"] = next((r["label"] for r in rows if r["level"] == level), "")
+    result["finalLevelSource"] = "agent_level_only"
+    result["judge"] = {
+        "recordedBy": "agent",
+        "rationale": (rationale or "")[:500],
+        "photoMatch": photo_match,
+        "photoMatchRate": {"match": 1.0, "partly": 0.5, "mismatch": 0.0}.get(photo_match),
+        "legacyLevelOnly": True,
+    }
+    return result
 
 # ---------------------------------------------------------------------------
 # 탭 2: 오프로딩
@@ -280,9 +543,10 @@ def get_support_level_methods(level: int) -> Optional[dict[str, Any]]:
     return next((l for l in methods["supportLevels"] if l["level"] == level), None)
 
 
-def remaining_observation_types(used_categories: list[str]) -> list[dict[str, Any]]:
+def remaining_observation_types(used_types: list[str]) -> list[dict[str, Any]]:
+    """학생이 아직 쓰지 않은 관찰 유형(측정 x 비교 x 범위 8가지)을 knowledge/observation_types.json에서 돌려준다."""
     types = load_knowledge("observation_types")["types"]
-    used = set(used_categories)
+    used = set(used_types)
     return [t for t in types if t["id"] not in used]
 
 
@@ -306,33 +570,33 @@ def extract_json(text: str) -> Optional[dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
-def build_observation_judge_prompt(sentences: list[dict[str, Any]]) -> str:
-    rubric = load_knowledge("observation_rubric")
-    cats = "\n".join(
-        f"- {c['id']} ({c['label']}): {c['definition']}" for c in rubric["categories"]
-    )
-    levels = "\n".join(
-        f"- {l['level']} ({l['label']}): {l['meaning']}" for l in rubric["levels"]
-    )
-    numbered = "\n".join(f"{i + 1}. {s['text']}" for i, s in enumerate(sentences))
-    return (
-        "[task: judge_observation]\n"
-        "당신은 연구용 채점자입니다. 학생에게 말하지 말고 JSON 한 개만 출력하세요. 설명 문장은 쓰지 마세요.\n"
-        "첨부한 단풍잎 사진과 학생의 관찰 문장을 비교해 채점합니다.\n\n"
-        f"[범주]\n{cats}\n\n[관찰력 수준]\n{levels}\n\n"
-        "[사진 일치 값] match(사진에서 확인됨), partly(일부만 맞음), mismatch(사진과 다름), "
-        "unknown(사진이 모호해 판단 불가). 모호하면 unknown으로 두세요.\n\n"
-        f"[학생 관찰 문장]\n{numbered}\n\n"
-        "[출력 JSON 형식]\n"
-        '{"sentences":[{"index":1,"categories":["color"],"photoMatch":"match"}],'
-        '"level":2,"rationale":"한두 문장으로 근거"}'
-    )
-
-
 def build_observation_agent_message(student_id: str, sentences: list[dict[str, Any]]) -> str:
     """관찰력 진단 워크스페이스의 Agent에게 보내는 메시지. 절차는 시스템 프롬프트에 있다."""
-    numbered = "\n".join(f"{i + 1}. {s['text']}" for i, s in enumerate(sentences)) or "(제출 문장 없음)"
-    return f"@agent [studentId: {student_id}]\n\n[학생 관찰 문장]\n{numbered}"
+    # 사진이 여러 장이면 문장마다 [사진N]을 붙인다. N은 첨부한 사진의 순서(images_used)와 같다.
+    used = images_used(sentences)
+    multi = len(used) > 1
+
+    def label(s: dict[str, Any]) -> str:
+        if multi and s.get("image") in used:
+            return f"[사진{used.index(s['image']) + 1}] "
+        return ""
+
+    numbered = (
+        "\n".join(f"{i + 1}. {label(s)}{s['text']}" for i, s in enumerate(sentences))
+        or "(제출 문장 없음)"
+    )
+    photo_note = (
+        f"\n\n[사진 안내] 첨부한 사진은 모두 {len(used)}장이며 [사진1]부터 순서대로입니다. "
+        "각 문장은 앞에 적힌 번호의 사진과 비교하세요."
+        if multi
+        else ""
+    )
+    count_note = (
+        f"\n\n[제출 문장 수] {len(sentences)}개. 번호 1부터 {len(sentences)}까지 모두 기록하세요."
+        if sentences
+        else ""
+    )
+    return f"@agent [studentId: {student_id}]\n\n[학생 관찰 문장]\n{numbered}{photo_note}{count_note}"
 
 
 def build_offloading_judge_prompt(
@@ -364,41 +628,6 @@ def build_offloading_judge_prompt(
         '"sentences":[{"index":1,"source":"student|ai_copied|ai_edited"}],'
         '"stage":2,"rationale":"한두 문장으로 근거"}'
     )
-
-
-def merge_observation_judge(
-    keyword: dict[str, Any], judge: Optional[dict[str, Any]]
-) -> dict[str, Any]:
-    """키워드 채점 위에 LLM 판정을 얹어 최종 수준을 정한다."""
-    result = dict(keyword)
-    result["judge"] = None
-    result["finalLevelSource"] = "keyword"
-    if not judge:
-        return result
-    level = judge.get("level")
-    if isinstance(level, int) and level in (1, 2, 3):
-        rubric = load_knowledge("observation_rubric")
-        result["level"] = level
-        result["levelLabel"] = next(l["label"] for l in rubric["levels"] if l["level"] == level)
-        result["finalLevelSource"] = "llm"
-    matches = [
-        s.get("photoMatch") for s in judge.get("sentences", []) if isinstance(s, dict)
-    ]
-    known = [m for m in matches if m in ("match", "partly", "mismatch")]
-    rate = None
-    if known:
-        rate = round(sum(1 for m in known if m == "match") / len(known), 2)
-    elif judge.get("photoMatchRate") is not None:
-        rate = judge.get("photoMatchRate")
-    result["judge"] = {
-        "level": level,
-        "rationale": judge.get("rationale"),
-        "sentences": judge.get("sentences"),
-        "categories": judge.get("categories"),
-        "recordedBy": judge.get("recordedBy"),
-        "photoMatchRate": rate,
-    }
-    return result
 
 
 def merge_offloading_judge(

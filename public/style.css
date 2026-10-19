@@ -7,7 +7,9 @@ body {
   font-family: "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   background: #fdf6ee;
   color: #2b2b2b;
-  min-height: 100vh;
+  /* 화면 높이를 고정한다. 글이 길어져도 페이지가 늘어나지 않고, 대화창·문장 목록 안에서 스크롤된다. */
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -269,6 +271,69 @@ body {
   outline-offset: -2px;
 }
 
+/* 사진 5장 고르기 */
+.image-picker {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px 10px 4px;
+  overflow-x: auto;
+}
+
+.image-picker[hidden] {
+  display: none;
+}
+
+.image-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 3px solid transparent;
+  border-radius: 10px;
+  background: #f4ede3;
+  cursor: pointer;
+  overflow: visible;
+}
+
+.image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 7px;
+  display: block;
+}
+
+.image-thumb:hover {
+  border-color: #e7b98a;
+}
+
+.image-thumb.selected {
+  border-color: #c0521b;
+}
+
+.image-thumb-badge {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #8a4a12;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-thumb.selected .image-thumb-badge {
+  background: #c0521b;
+}
+
 .thumbnail-row {
   display: flex;
   gap: 8px;
@@ -353,6 +418,7 @@ body {
   font-size: 0.92rem;
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .msg-ai {
@@ -467,6 +533,11 @@ body {
 }
 
 @media (max-width: 760px) {
+  /* 좁은 화면은 위아래로 쌓이므로 페이지 자체가 스크롤되게 두고, 목록만 높이를 제한한다. */
+  body {
+    height: auto;
+    min-height: 100vh;
+  }
   .app-main {
     flex-direction: column;
     height: auto;
@@ -474,6 +545,15 @@ body {
   .main-image-wrap {
     min-height: 240px;
     flex-direction: column;
+  }
+  .chat-panel {
+    min-height: 420px;
+  }
+  .chat-log {
+    max-height: 320px;
+  }
+  .sentence-list {
+    max-height: 220px;
   }
 }
 
@@ -648,6 +728,19 @@ body {
 
 .sentence-list li {
   margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+
+.sentence-photo {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: #fdebd6;
+  color: #8a4a12;
+  font-size: 0.72rem;
+  font-weight: 600;
+  vertical-align: 1px;
 }
 
 .sentence-list li span {

@@ -151,7 +151,7 @@ def _add_tool_calls_sheet(wb: Workbook, tool_calls: list[dict[str, Any]]):
 
 DIAGNOSIS_HEADERS = [
     "학번", "모드", "종류", "기록 시각(UTC)", "관찰력 수준", "오프로딩 단계", "수준/단계 이름",
-    "점수", "제출 문장 수", "관찰 문장 수", "범주 다양성", "정량 문장 수", "추론 비율",
+    "점수(OQ_A)", "제출 문장 수", "범위 밖 문장 수", "다양도 D", "정량 문장 수", "사용한 관찰 유형",
     "AI 요청 수", "관찰 대행 비율", "AI 반영 비율", "사진 일치율", "수준 판정 출처", "LLM 판정 상태",
     "LLM 판정 근거", "도구 누락 턴 수", "지원 수준",
 ]
@@ -176,10 +176,10 @@ def _add_diagnoses_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
                 p.get("levelLabel") or p.get("stageLabel"),
                 p.get("score"),
                 p.get("sentenceCount") if p.get("sentenceCount") is not None else p.get("submittedSentenceCount"),
-                p.get("observationSentenceCount"),
+                p.get("outOfScopeMessageCount"),
                 p.get("varietyCount"),
                 p.get("quantitySentenceCount"),
-                p.get("inferenceRatio"),
+                ", ".join(str(x) for x in (p.get("typesUsed") or [])),
                 p.get("requestCount"),
                 p.get("delegateShare"),
                 p.get("reuseRatio"),
@@ -191,6 +191,56 @@ def _add_diagnoses_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
                 ", ".join(str(x) for x in (p.get("supportLevels") or [])),
             ]
         )
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws)
+    return ws
+
+
+OUT_OF_SCOPE_LABELS = {"nonVisualSense": "시각 이외 감각", "timeFlow": "시간 흐름"}
+
+
+def _unit_text(unit: dict[str, Any]) -> str:
+    if unit.get("outOfScope"):
+        return "범위 밖(" + OUT_OF_SCOPE_LABELS.get(unit["outOfScope"], unit["outOfScope"]) + ")"
+    if not unit.get("do"):
+        return "0"
+    meas = {"qualitative": "정성", "quantitative": "정량"}.get(unit.get("measurement"), "")
+    comp = {"single": "단수", "multiple": "다수"}.get(unit.get("comparison"), "")
+    scope = {"whole": "전체", "part": "부분"}.get(unit.get("scope"), "")
+    return f"{unit['do']}-{meas}-{comp}-{scope}"
+
+
+def _add_classification_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
+    """탭 1(관찰력 진단)과 탭 3(지원 후 관찰)의 문장별 분류 결과를 한 줄씩 적는다."""
+    ws = wb.create_sheet(title="관찰분류")
+    ws.append(
+        ["학번", "모드", "번호", "관찰 문장", "사진", "LE", "정보 단위(객관도-측정-비교-범위)",
+         "ΣDO", "LE×ΣDO", "범위 밖 표시", "분류 출처"]
+    )
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for d in diagnoses:
+        p = d.get("payload") or {}
+        for i, m in enumerate(p.get("messages") or [], start=1):
+            if not isinstance(m, dict) or "units" not in m:
+                continue
+            ws.append(
+                [
+                    d.get("student_id"),
+                    MODE_LABELS.get(d.get("mode"), d.get("mode")),
+                    i,
+                    m.get("text"),
+                    m.get("image"),
+                    m.get("le"),
+                    " / ".join(_unit_text(u) for u in m.get("units") or []),
+                    m.get("sumDO"),
+                    m.get("contribution"),
+                    ", ".join(OUT_OF_SCOPE_LABELS.get(f, f) for f in m.get("outOfScope") or []),
+                    "Agent" if m.get("source") == "agent" else "키워드 대체",
+                ]
+            )
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
@@ -222,7 +272,7 @@ def _add_mode_sessions_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
 
 def _add_sentences_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
     ws = wb.create_sheet(title="제출문장")
-    ws.append(["학번", "모드", "번호", "시작 후 경과(초)", "관찰 문장"])
+    ws.append(["학번", "모드", "번호", "시작 후 경과(초)", "관찰 문장", "사진"])
     for cell in ws[1]:
         cell.font = Font(bold=True)
     for m in mode_sessions:
@@ -234,6 +284,7 @@ def _add_sentences_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
                     i,
                     sent.get("t") if isinstance(sent, dict) else None,
                     sent.get("text") if isinstance(sent, dict) else str(sent),
+                    sent.get("image") if isinstance(sent, dict) else None,
                 ]
             )
     for row in ws.iter_rows(min_row=2):
@@ -254,6 +305,7 @@ def build_admin_xlsx(
     wb.remove(wb.active)
     if diagnoses:
         _add_diagnoses_sheet(wb, diagnoses)
+        _add_classification_sheet(wb, diagnoses)
     if mode_sessions:
         _add_mode_sessions_sheet(wb, mode_sessions)
         _add_sentences_sheet(wb, mode_sessions)

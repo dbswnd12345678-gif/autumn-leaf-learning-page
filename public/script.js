@@ -64,6 +64,7 @@ let serverStatus = null; // /api/session/status 응답의 modes
 let timerBase = { mode: null, seconds: 0, at: 0 };
 let submitting = false;
 let chatBusy = false;
+const imagePicker = $("image-picker");
 
 // ---------------------------------------------------------------------------
 // 학번, 브라우저 세션
@@ -198,6 +199,64 @@ function pushChat(entry, mode = currentMode) {
 }
 
 // ---------------------------------------------------------------------------
+// 사진 고르기: 탭마다 5장 중 한 장을 골라 관찰한다.
+// ---------------------------------------------------------------------------
+function modeImages(mode = currentMode) {
+  return modeInfo(mode)?.images || [];
+}
+
+function selectedImage(mode = currentMode) {
+  const list = modeImages(mode);
+  const saved = localStorage.getItem(storeKey("image", mode));
+  return list.includes(saved) ? saved : list[0] || null;
+}
+
+function showSelectedImage() {
+  const name = selectedImage();
+  if (name) {
+    const next = `images/${name}`;
+    if (!mainImage.src.endsWith(next)) mainImage.src = next;
+  }
+  renderImagePicker();
+  if (typeof window.redrawMeasurements === "function") window.redrawMeasurements();
+}
+
+function renderImagePicker() {
+  const list = modeImages();
+  const current = selectedImage();
+  imagePicker.innerHTML = "";
+  imagePicker.hidden = list.length < 2;
+  list.forEach((name, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "image-thumb" + (name === current ? " selected" : "");
+    btn.setAttribute("aria-pressed", name === current ? "true" : "false");
+    btn.title = `사진 ${i + 1}`;
+    const img = document.createElement("img");
+    img.src = `images/${name}`;
+    img.alt = `사진 ${i + 1}`;
+    img.loading = "lazy";
+    const badge = document.createElement("span");
+    badge.className = "image-thumb-badge";
+    badge.textContent = String(i + 1);
+    btn.appendChild(img);
+    btn.appendChild(badge);
+    btn.addEventListener("click", () => {
+      if (name === selectedImage()) return;
+      localStorage.setItem(storeKey("image", currentMode), name);
+      showSelectedImage();
+    });
+    imagePicker.appendChild(btn);
+  });
+}
+
+// 문장 옆에 붙일 "사진 N" 이름. 사진 목록에 없으면 빈 문자열.
+function photoLabel(name, mode = currentMode) {
+  const idx = modeImages(mode).indexOf(name);
+  return idx >= 0 ? `사진 ${idx + 1}` : "";
+}
+
+// ---------------------------------------------------------------------------
 // 타이머
 // ---------------------------------------------------------------------------
 function formatClock(seconds) {
@@ -279,6 +338,13 @@ function renderSentences() {
   sentenceList.innerHTML = "";
   list.forEach((s, i) => {
     const li = document.createElement("li");
+    const label = photoLabel(s.image);
+    if (label) {
+      const tag = document.createElement("span");
+      tag.className = "sentence-photo";
+      tag.textContent = label;
+      li.appendChild(tag);
+    }
     const span = document.createElement("span");
     span.textContent = s.text;
     li.appendChild(span);
@@ -311,8 +377,7 @@ function applyMode() {
   $("lesson-hint").textContent = spec.hint;
   $("sentence-tip").textContent = spec.sentenceTip;
   chatInput.placeholder = spec.chatPlaceholder || "";
-  if (info?.images?.[0]) mainImage.src = `images/${info.images[0]}`;
-  if (typeof window.redrawMeasurements === "function") window.redrawMeasurements();
+  showSelectedImage();
 
   renderTabs();
   syncTimer();
@@ -450,7 +515,7 @@ async function sendToAI(text, kind) {
   try {
     const data = await api("/api/chat", {
       method: "POST",
-      body: { message: text, studentId, sessionId, mode: currentMode, kind },
+      body: { message: text, studentId, sessionId, mode: currentMode, kind, image: selectedImage() },
     });
     loadingEl.remove();
     addMessage(data.answer, "ai");
@@ -494,7 +559,7 @@ function elapsedSeconds() {
 
 function addSentence(text) {
   const cur = loadSentences();
-  cur.push({ text, t: elapsedSeconds() });
+  cur.push({ text, t: elapsedSeconds(), image: selectedImage() });
   saveSentences(cur);
   renderSentences();
 }
