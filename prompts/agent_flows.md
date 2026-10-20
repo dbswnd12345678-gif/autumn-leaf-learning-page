@@ -12,7 +12,7 @@
 |---|---|---|---|
 | 관찰력 평가 데이터 조회 | `/api/tools/observation-assessment?studentId={studentId}` | 3 (선택), 연구 확인 | 평가 기준과 이 학생의 탭 1 진단 결과(수준, OQ_A, 다양도 D, 쓰지 않은 관찰 유형, 범위 밖 표시 수) |
 | 오프로딩 단계 진단 조회 | `/api/tools/offloading-diagnosis?studentId={studentId}` | 3 (선택), 연구 확인 | 단계 정의와 이 학생의 탭 2 진단 결과(요청 유형, 반영 비율) |
-| 오프로딩 단계별 지원방법 조회 | `/api/tools/support-methods?studentId={studentId}` | 3 (매 턴) | 서버가 계산한 지원 수준의 방법, 하지 말 것, 오프로딩 단계 메모 |
+| 오프로딩 단계별 지원방법 조회 | `/api/tools/support-methods?studentId={studentId}` | 3 (매 턴) | 관찰 진단(무엇을 물을지)과 오프로딩 단계(어떻게 말할지)를 각각 돌려줌. 둘을 하나의 지원 수준으로 합치지 않음 |
 | 단풍잎 관찰 시 관찰 유형 및 방법 지원 | `/api/tools/observation-methods?studentId={studentId}` | 3 (문장 입력 시) | 학생이 아직 쓰지 않은 관찰 유형(측정 x 비교 x 범위 8가지 중) 최대 3개와 방법, 질문, 문장 틀. 방금 쓴 문장이 시각 이외 감각이나 시간 흐름이면 바꾸어 쓰는 안내(outOfScopeGuidance)도 함께 |
 | 개인별 대화 로그 조회 | `/api/tools/dialogue-log?studentId={studentId}&mode=support&limit=10` | 3 (필요 시) | 최근 대화. 기록은 서버가 항상 저장하고 Agent는 읽기만 함 |
 
@@ -48,10 +48,10 @@
   - 단위 하나는 `객관도-측정-비교-범위`입니다. 예: `2-정성-단수-부분`, `3-정량-단수-전체`
   - 관찰이 아닌 단위는 `0`, 시각 이외 감각은 `OOS-감각`, 시간 흐름은 `OOS-시간`
   - 예: `1:2:2-정성-단수-부분,2-정성-단수-부분;2:1:3-정량-단수-전체;3:1:OOS-감각;4:1:0`
-- 서버는 제출 직후 키워드 규칙으로 먼저 분류해 저장합니다(`judgeStatus: pending`). Agent가 기록 Flow를 부르면 문장별로 Agent 분류가 키워드 분류를 덮어쓰고, 서버가 다음을 계산합니다.
+- 서버는 제출 직후 문장 원문만 저장합니다(`judgeStatus: pending`, 유형과 객관도는 비어 있음). Agent가 기록 Flow를 부르면 그 분류만으로 서버가 다음을 계산합니다. 단어 규칙으로 빈칸을 채우지 않습니다.
   - 문장 기여값 = LE x ΣDO (범위 밖 단위와 객관도 0 단위는 제외)
   - 다양도 D = 사용한 관찰 유형 수(측정 x 비교 x 범위, 최대 8)
   - OQ_A = (모든 문장 기여값의 합) x D, 그리고 지원 수준 계산에 쓰는 관찰력 수준(1~3)
-- Agent가 일부 문장만 기록하면 응답의 `missingIndexes`에 빠진 번호가 나옵니다. 그 문장은 키워드 분류가 그대로 쓰이고 엑셀 "관찰분류" 시트에 `키워드 대체`로 표시됩니다. 기록을 전혀 하지 않으면 `judgeStatus: failed`로 남고 키워드 결과가 최종값입니다.
+- Agent가 일부 문장만 기록하면 응답의 `missingIndexes`에 빠진 번호가 나옵니다. 그 문장은 분류 전으로 남고, 수준과 OQ_A는 모든 문장이 기록된 뒤에만 확정됩니다. 기록을 전혀 하지 않으면 `judgeStatus: failed`로 남고 문장 원문만 최종 기록입니다.
 - 관찰력 수준(1~3) 구간(`levelThresholds`)과 LE 기준은 **임시 값**입니다. 연구자가 확정하면 `knowledge/observation_rubric.json`에서 고칩니다. 서버를 다시 배포하면 반영됩니다.
 - Flow는 AnythingLLM 전체에서 공유됩니다. 이 워크스페이스에서 쓰지 않을 이전 Flow(교육학 안내 조회, 학생 관찰 이력 조회 등)는 시스템 프롬프트가 두 Flow만 부르도록 제한합니다.

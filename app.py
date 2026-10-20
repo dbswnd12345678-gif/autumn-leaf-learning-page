@@ -358,13 +358,23 @@ def student_levels(student_id: str) -> tuple[Optional[int], Optional[int]]:
 
 
 def build_support_message(
-    student_id: str, student_message: str, support_level: int, input_kind: str
+    student_id: str,
+    student_message: str,
+    input_kind: str,
+    off_stage: Optional[int],
+    observation: dict[str, Any],
 ) -> str:
     # AnythingLLM은 메시지 앞에 "@agent"가 있어야 도구(Agent Flow)를 호출한다.
-    # 태그는 짧게 두고, 지원 방법의 내용은 Agent가 Flow로 조회한다.
+    # 관찰 진단과 오프로딩 단계는 숫자로 합치지 않고 각각 적는다.
+    stage = off_stage if off_stage in (1, 2, 3, 4) else "없음"
+    tried = ", ".join(observation.get("typesUsed") or []) or "없음"
+    if observation.get("nextType"):
+        nxt = f"[nextType: {observation['nextType']}] [question: {observation.get('question') or ''}]"
+    else:
+        nxt = "[nextType: 없음]"
     tag = (
-        f"[studentId: {student_id}] "
-        f"[supportLevel: {support_level}] [input: {input_kind}]"
+        f"[studentId: {student_id}] [offloadingStage: {stage}] "
+        f"[input: {input_kind}] [tried: {tried}] {nxt}"
     )
     return f"@agent {tag}\n\n{student_message}"
 
@@ -412,9 +422,12 @@ async def chat(req: ChatRequest):
     support_level: Optional[int] = None
     last_tool_id = 0
     if mode == "support":
-        obs_level, off_stage = student_levels(student_id)
-        support_level = diagnosis.compute_support_level(obs_level, off_stage)["supportLevel"]
-        agent_message = build_support_message(student_id, message, support_level, input_kind)
+        _obs_level, off_stage = student_levels(student_id)
+        assess_payload = (db.get_diagnosis(student_id, "assess") or {}).get("payload", {})
+        observation = diagnosis.observation_support_state(assess_payload)
+        agent_message = build_support_message(
+            student_id, message, input_kind, off_stage, observation
+        )
         last_tool_id = db.get_max_tool_call_id(student_id)
     else:
         # 탭 2는 학생이 평소 쓰는 AI에 가깝게 두기 위해, 태그나 @agent 없이 질문 그대로 보낸다.
@@ -438,7 +451,7 @@ async def chat(req: ChatRequest):
                 student_id=student_id,
                 tool_name="tool_skipped",
                 input_text=message,
-                result_summary=f"supportLevel={support_level}, input={input_kind}",
+                result_summary=f"offloadingStage={off_stage}, input={input_kind}",
             )
 
     db.add_observation(
@@ -485,7 +498,7 @@ async def run_judge(
     turns: list[dict[str, Any]],
     image_names: list[str],
 ) -> None:
-    """LLM 판정을 받아 진단 결과에 덧붙인다. 실패해도 키워드 채점은 그대로 남는다."""
+    """LLM 판정을 받아 진단 결과에 덧붙인다. 관찰력 진단이 실패하면 문장은 분류 전으로 남는다."""
     slug = judge_slug_for(mode)
     try:
         if mode == "assess":
@@ -557,18 +570,17 @@ async def submit(req: SubmitRequest, background: BackgroundTasks):
     ][:1]
 
     if mode == "assess":
-        payload = diagnosis.score_observation(sentences)
+        payload = diagnosis.unclassified_observation(sentences)
     elif mode == "offload":
         payload = diagnosis.score_offloading(turns, sentences, session.get("started_at"))
     else:
         # 탭 3은 진단이 아니라 지원 후 관찰 결과를 기록한다.
-        payload = diagnosis.score_observation(sentences)
-        payload["method"] = "keyword"
+        payload = diagnosis.unclassified_observation(sentences)
         payload["turnCount"] = len(turns)
         payload["toolSkippedTurns"] = sum(1 for t in turns if t.get("tool_skipped"))
         payload["supportLevels"] = sorted({t["support_level"] for t in turns if t.get("support_level")})
 
-    # 탭 1은 제출 문장이 없으면 Agent가 판정할 것이 없으므로 키워드 결과(지수 0)만 남긴다.
+    # 탭 1은 제출 문장이 없으면 Agent가 분류할 문장이 없으므로 분류 전 기록만 남긴다.
     needs_judge = bool(judge_slug_for(mode)) and not (mode == "assess" and not sentences)
     payload["judgeStatus"] = "pending" if needs_judge else "skipped"
     db.save_diagnosis(student_id, mode, mode_kind(mode), payload)
@@ -815,32 +827,34 @@ def tool_support_methods(
     studentId: str = Query(...),
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """오프로딩 단계별 지원방법 조회. 서버가 계산한 지원 수준의 지원 방법을 돌려준다."""
+    """관찰 진단과 오프로딩 단계를 각각 돌려준다. 둘을 하나의 지원 수준으로 합치지 않는다."""
     require_tool_key(x_tool_key)
     student_id = tool_student(studentId)
 
-    obs_level, off_stage = student_levels(student_id)
-    computed = diagnosis.compute_support_level(obs_level, off_stage)
-    level = computed["supportLevel"]
-    methods = diagnosis.get_support_level_methods(level) or {}
+    _obs_level, off_stage = student_levels(student_id)
+    assess_payload = (db.get_diagnosis(student_id, "assess") or {}).get("payload", {})
+    observation = diagnosis.observation_support_state(assess_payload)
+    offloading = diagnosis.offloading_support(off_stage)
     support = diagnosis.load_knowledge("support_methods")
-    note = next(
-        (s["note"] for s in support["byOffloadingStage"] if s["stage"] == off_stage), None
-    )
 
     db.log_tool_call(
         student_id=student_id,
         tool_name="support_methods",
-        result_summary=f"supportLevel={level} ({computed['source']})",
+        result_summary=(
+            f"observation={observation['rule']['id']}, nextType={observation.get('nextType')}, "
+            f"offloadingStage={off_stage}"
+        ),
     )
     return {
-        "supportLevel": level,
-        "supportLabel": methods.get("label"),
-        "methods": methods.get("methods", []),
-        "dontDo": methods.get("dontDo", []),
-        "offloadingNote": note,
+        "observation": observation,
+        "offloading": offloading,
         "principles": support["principles"],
-        "howToUse": "방법 중 하나만 골라 이번 답변에 쓰세요. 관찰 내용을 대신 말하지 마세요.",
+        "howToUse": (
+            "관찰 규칙으로 무엇을 물을지 하나만 정하세요. 방금 문장이 관찰이 아니거나 막연하면 "
+            "nextType 대신 not_observation 또는 vague 규칙을 쓰세요. "
+            "오프로딩 단계의 methods로 그 질문을 어떻게 말할지 정하세요. "
+            "두 축을 하나의 수준으로 합치지 말고, 학생에게 단계 숫자를 말하지 마세요."
+        ),
     }
 
 
@@ -853,21 +867,12 @@ def tool_observation_methods(
     require_tool_key(x_tool_key)
     student_id = tool_student(studentId)
 
-    # 탭 3에서 지금까지 입력한 관찰 문장으로 이미 쓴 관찰 유형(측정 x 비교 x 범위)을 센다.
-    rows = [
-        r for r in db.get_mode_observations(student_id, "support") if r.get("input_kind") == "sentence"
-    ]
-    sentences = [{"text": r["question"], "t": None} for r in rows if r.get("question")]
-    now = diagnosis.score_observation(sentences) if sentences else None
-    used_now = (now or {}).get("typesUsed", [])
-    # 가장 최근 문장에 시각 이외 감각이나 시간 흐름이 있으면 바꾸어 쓰도록 안내한다.
-    latest_flags = ((now or {}).get("messages") or [{}])[-1].get("outOfScope", [])
-
-    # 탭 1에서 쓰지 않은 유형을 먼저 안내하도록 순서를 정한다.
+    # 시도한 유형은 Agent가 분류해 둔 탭 1 진단만 본다. 단어로 문장을 다시 나누지 않는다.
     assess = (db.get_diagnosis(student_id, "assess") or {}).get("payload", {})
-    used_before = set(assess.get("typesUsed") or [])
-    remaining = diagnosis.remaining_observation_types(used_now)
-    remaining.sort(key=lambda t: t["id"] in used_before)
+    classified = assess.get("method") in ("agent", "partial")
+    used_now = list(assess.get("typesUsed") or []) if classified else []
+    remaining = diagnosis.remaining_observation_types(used_now) if classified else []
+    latest_flags: list[str] = []
 
     types = diagnosis.load_knowledge("observation_types")
     guidance = types.get("outOfScopeGuidance", {})
@@ -880,13 +885,14 @@ def tool_observation_methods(
         ),
     )
     return {
+        "classificationReady": classified,
         "usedTypes": used_now,
         "suggestedTypes": remaining[:3],
         "outOfScopeGuidance": {f: guidance.get(f) for f in latest_flags} or None,
         "avoid": types["avoid"],
         "howToUse": (
-            "outOfScopeGuidance가 있으면 그것을 먼저 쓰세요(이번 문장이 사진으로 확인할 수 없는 서술이라는 뜻). "
-            "없으면 suggestedTypes에서 하나만 고르세요. 학생이 직접 사진에서 찾고 한 문장 쓰게 하세요."
+            "classificationReady가 아니면 새 관찰 유형을 제안하지 마세요. "
+            "준비되면 suggestedTypes에서 하나만 고르세요. 학생이 직접 사진에서 찾고 한 문장 쓰게 하세요."
         ),
     }
 

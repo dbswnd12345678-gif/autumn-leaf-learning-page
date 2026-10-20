@@ -238,7 +238,7 @@ def _add_classification_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
                     m.get("sumDO"),
                     m.get("contribution"),
                     ", ".join(OUT_OF_SCOPE_LABELS.get(f, f) for f in m.get("outOfScope") or []),
-                    "Agent" if m.get("source") == "agent" else "키워드 대체",
+                    {"agent": "Agent", "pending": "분류 전"}.get(m.get("source"), "미분류"),
                 ]
             )
     for row in ws.iter_rows(min_row=2):

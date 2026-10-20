@@ -3,13 +3,12 @@
 
 하는 일:
   - knowledge/*.json(코드북, 지원 규칙표)을 읽는다.
-  - 탭 1(관찰력): 문장을 정보 단위로 나눠 객관도(0~3), 측정/비교/범위, 범위 밖 표시를 정하고 LE x ΣDO, 다양도 D, 지수 OQ_A, 수준(1~3)을 계산한다.
+  - 탭 1(관찰력): Agent가 문장을 정보 단위로 분류하면, 서버가 객관도 합, 다양도 D, 지수 OQ_A, 수준(1~3)을 계산한다.
   - 탭 2(오프로딩): 학생 요청 유형, AI 답변이 제출 문장에 반영된 정도로 단계(1~4)를 계산한다.
   - 탭 3(지원): 관찰력 수준 x 오프로딩 단계로 지원 수준(1~3)을 정한다.
   - LLM 판정용 프롬프트를 만들고, 돌아온 JSON을 안전하게 읽는다.
 
-키워드 채점은 항상 계산해 두는 기본값이다. LLM(Agent) 판정이 성공하면 그 값을 우선하되,
-키워드 결과도 함께 저장해 연구자가 비교할 수 있게 한다.
+관찰 문장의 분류는 Agent만 한다. Agent 기록이 오기 전에는 문장 원문만 두고, 단어 규칙으로 유형이나 객관도를 채우지 않는다.
 """
 
 from __future__ import annotations
@@ -90,11 +89,8 @@ def _bigrams(text: str) -> set[str]:
 #
 # 문장(채팅 메시지 한 번) -> 정보 단위로 나눔 -> 단위마다 객관도(0~3)와 측정/비교/범위 분류,
 # 범위 밖(시각 이외 감각, 시간 흐름) 표시 -> 서버가 지수를 계산한다.
-# 분류는 Agent가 기록 Flow로 보내 주고, 기록이 없으면 아래 키워드 규칙으로 대신한다.
+# 분류는 Agent가 기록 Flow로 보내 준다. 서버는 그 분류로만 칸을 채우고 지수를 계산한다.
 # ---------------------------------------------------------------------------
-
-_NUMBER = re.compile(r"\d+(\.\d+)?|[한두세네다섯여섯일곱여덟아홉열]\s*(개|갈래|장|줄|쌍|배)")
-_CLAUSE_SPLIT = re.compile(r"[.!?,;\n]+|\s+(?:그리고|그런데|하지만|그러나)\s+")
 
 MEASUREMENT_KO = {"qualitative": "정성", "quantitative": "정량"}
 COMPARISON_KO = {"single": "단수", "multiple": "다수"}
@@ -202,50 +198,6 @@ def parse_agent_messages(raw: Any) -> dict[int, dict[str, Any]]:
     return result
 
 
-def _has_any(text: str, words: list[str]) -> bool:
-    return any(w in text for w in words)
-
-
-def classify_clause_keyword(clause: str, rubric: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """절 하나를 키워드로 분류해 정보 단위 하나로 만든다. 판단할 거리가 없으면 None."""
-    cfg = rubric["keywordFallback"]
-    if len(clause.strip()) < cfg["minClauseChars"]:
-        return None
-    for flag in rubric["outOfScope"]["flags"]:
-        if _has_any(clause, flag["cueWords"]):
-            return make_unit(0, out_of_scope=flag["id"])
-    if _has_any(clause, cfg["inferenceCues"]):
-        return make_unit(0)
-
-    quantitative = bool(_NUMBER.search(clause)) or _has_any(clause, cfg["quantityWords"])
-    specific = _has_any(clause, cfg["specificWords"])
-    vague = _has_any(clause, cfg["vagueWords"])
-    if quantitative and (specific or vague or "잎" in clause or "갈래" in clause):
-        do = 3
-    elif specific:
-        do = 2
-    elif vague:
-        do = 1
-    else:
-        do = 0
-    comparison = "multiple" if _has_any(clause, cfg["comparisonCues"]) else "single"
-    scope = "part" if _has_any(clause, cfg["partWords"]) else "whole"
-    return make_unit(do, "quantitative" if quantitative else "qualitative", comparison, scope)
-
-
-def classify_message_keyword(text: str, rubric: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """문장(메시지) 하나를 키워드로 분류한다. LE는 판단하지 못해 1로 둔다."""
-    rubric = rubric or load_knowledge("observation_rubric")
-    units = []
-    for clause in _CLAUSE_SPLIT.split(text or ""):
-        unit = classify_clause_keyword(clause, rubric)
-        if unit:
-            units.append(unit)
-    if not units:
-        units = [make_unit(0)]
-    return {"le": 1, "units": units}
-
-
 def level_from_oq(oq: float) -> dict[str, Any]:
     rows = load_knowledge("observation_rubric")["levelThresholds"]["levels"]
     chosen = rows[0]
@@ -267,11 +219,16 @@ def compute_observation_index(messages: list[dict[str, Any]]) -> dict[str, Any]:
     flag_counts: dict[str, int] = {}
     quantitative_messages = 0
     for m in messages:
+        row = dict(m)
+        if m.get("source") != "agent":
+            row.update({"sumDO": None, "contribution": None, "outOfScope": []})
+            computed.append(row)
+            continue
         units = m.get("units") or []
         in_scope = [u for u in units if not u.get("outOfScope")]
         sum_do = sum(int(u.get("do") or 0) for u in in_scope)
-        le = int(m.get("le") or 1)
-        contribution = le * sum_do
+        le = m.get("le") if isinstance(m.get("le"), int) else None
+        contribution = (le * sum_do) if le is not None else 0
         total += contribution
         for u in in_scope:
             if (u.get("do") or 0) > 0:
@@ -281,7 +238,6 @@ def compute_observation_index(messages: list[dict[str, Any]]) -> dict[str, Any]:
             flag_counts[f] = flag_counts.get(f, 0) + 1
         if any(u.get("measurement") == "quantitative" for u in in_scope if (u.get("do") or 0) > 0):
             quantitative_messages += 1
-        row = dict(m)
         row.update({"le": le, "sumDO": sum_do, "contribution": contribution, "outOfScope": flags})
         computed.append(row)
 
@@ -323,23 +279,43 @@ def _observation_payload(
     return payload
 
 
-def score_observation(sentences: list[dict[str, Any]]) -> dict[str, Any]:
-    """탭 1 키워드 대체 채점. 제출 직후 먼저 저장하고, Agent 기록이 오면 덮어쓴다."""
-    rubric = load_knowledge("observation_rubric")
-    base = []
-    for s in sentences:
-        cls = classify_message_keyword(s["text"], rubric)
-        base.append(
-            {
-                "text": s["text"],
-                "t": s.get("t"),
-                "image": s.get("image"),
-                "le": cls["le"],
-                "units": cls["units"],
-                "source": "keyword",
-            }
-        )
-    return _observation_payload(base, "keyword", {"finalLevelSource": "keyword", "judge": None})
+def unclassified_observation(sentences: list[dict[str, Any]]) -> dict[str, Any]:
+    """제출 직후 기록. 문장 원문만 남기고 유형, 객관도, 수준은 비워 둔다."""
+    messages = [
+        {
+            "text": s["text"],
+            "t": s.get("t"),
+            "image": s.get("image"),
+            "le": None,
+            "units": [],
+            "source": "pending",
+            "sumDO": None,
+            "contribution": None,
+            "outOfScope": [],
+        }
+        for s in sentences
+    ]
+    return {
+        "method": "unclassified",
+        "rubricVersion": load_knowledge("observation_rubric").get("version"),
+        "sentenceCount": len(messages),
+        "messages": messages,
+        "typesUsed": [],
+        "typesMissing": all_type_ids(),
+        "D": None,
+        "oqA": None,
+        "level": None,
+        "levelLabel": None,
+        "varietyCount": None,
+        "quantitySentenceCount": None,
+        "score": None,
+        "contributionSum": None,
+        "finalLevelSource": None,
+        "judge": None,
+        "outOfScopeCounts": {},
+        "outOfScopeMessageCount": 0,
+        "quantitativeMessageCount": None,
+    }
 
 
 def apply_agent_observation(
@@ -350,7 +326,8 @@ def apply_agent_observation(
 ) -> dict[str, Any]:
     """Agent가 기록한 분류를 제출 문장에 입히고 지수를 다시 계산한다.
 
-    Agent가 빼먹은 문장은 키워드 분류를 그대로 쓰고, 어느 문장이 그런지 source로 남긴다.
+    Agent가 빼먹은 문장은 분류 전으로 남긴다. 유형이나 객관도를 단어로 채우지 않는다.
+    모든 문장이 분류되기 전에는 수준과 OQ_A를 확정하지 않는다.
     """
     messages = [dict(m) for m in stored.get("messages", [])]
     for i, m in enumerate(messages, start=1):
@@ -365,18 +342,13 @@ def apply_agent_observation(
     ignored = sorted(i for i in agent_messages if i < 1 or i > len(messages))
 
     if not messages or covered == 0:
-        method = "keyword"
+        method = "unclassified"
     elif covered == len(messages):
         method = "agent"
     else:
-        method = "mixed"
+        method = "partial"
 
     rate = {"match": 1.0, "partly": 0.5, "mismatch": 0.0}.get(photo_match)
-    keyword_summary = stored.get("keywordBaseline") or {
-        "oqA": stored.get("oqA"),
-        "D": stored.get("D"),
-        "level": stored.get("level"),
-    }
     judge = {
         "recordedBy": "agent",
         "rationale": (rationale or "")[:500],
@@ -385,27 +357,27 @@ def apply_agent_observation(
         "agentMessageCount": covered,
         "ignoredIndexes": ignored,
     }
-    return _observation_payload(
+    payload = _observation_payload(
         messages,
         method,
         {
-            "finalLevelSource": method,
+            "finalLevelSource": method if method == "agent" else None,
             "judge": judge,
-            "keywordBaseline": keyword_summary,
             **{k: stored[k] for k in ("sentencesTruncated",) if k in stored},
         },
     )
+    if method != "agent":
+        payload["oqA"] = None
+        payload["score"] = None
+        payload["level"] = None
+        payload["levelLabel"] = None
+    return payload
 
 
 def apply_legacy_level(stored: dict[str, Any], level: int, photo_match: str, rationale: str) -> dict[str, Any]:
-    """이전 형식(level만 기록)을 받았을 때의 호환 처리. 지수는 키워드 값을 그대로 두고 수준만 바꾼다."""
+    """이전 형식(level만 기록)을 받았을 때의 호환 처리. 문장별 분류는 만들지 않고 수준만 적는다."""
     result = dict(stored)
     rows = load_knowledge("observation_rubric")["levelThresholds"]["levels"]
-    result["keywordBaseline"] = stored.get("keywordBaseline") or {
-        "oqA": stored.get("oqA"),
-        "D": stored.get("D"),
-        "level": stored.get("level"),
-    }
     result["level"] = level
     result["levelLabel"] = next((r["label"] for r in rows if r["level"] == level), "")
     result["finalLevelSource"] = "agent_level_only"
@@ -513,34 +485,45 @@ def score_offloading(
 # 탭 3: 지원 수준
 # ---------------------------------------------------------------------------
 
-def compute_support_level(
-    observation_level: Optional[int], offloading_stage: Optional[int]
-) -> dict[str, Any]:
-    """관찰력 수준 x 오프로딩 단계 → 지원 수준. 진단이 없으면 기본값을 쓴다."""
-    methods = load_knowledge("support_methods")
-    default = methods["defaultSupportLevel"]
-    matrix = methods["supportRules"]["matrix"]
-    level = default
-    source = "default"
-    if observation_level and offloading_stage:
-        try:
-            level = int(matrix[str(observation_level)][str(offloading_stage)])
-            source = "matrix"
-        except (KeyError, ValueError, TypeError):
-            level = default
-    label = next((l["label"] for l in methods["supportLevels"] if l["level"] == level), "")
+def observation_support_state(assess_payload: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """탭 1 진단에서 이번 답의 관찰 쪽 제안만 고른다. 오프로딩 단계와 합치지 않는다."""
+    support = load_knowledge("support_methods")["observationSupport"]
+    payload = assess_payload or {}
+    classified = payload.get("method") in ("agent", "partial")
+    used = list(payload.get("typesUsed") or []) if classified else []
+    missing = [t for t in support["suggestionOrder"] if classified and t not in used]
+    next_type = missing[0] if missing else None
+    if not classified:
+        rule_id = "not_classified"
+    elif next_type:
+        rule_id = "missing_type"
+    else:
+        rule_id = "all_tried"
+    rule = next(r for r in support["rules"] if r["id"] == rule_id)
+    question = None
+    if next_type:
+        question = next(
+            (t.get("question") for t in load_knowledge("observation_types")["types"] if t["id"] == next_type),
+            None,
+        )
     return {
-        "supportLevel": level,
-        "supportLabel": label,
-        "source": source,
-        "observationLevel": observation_level,
-        "offloadingStage": offloading_stage,
+        "classified": classified,
+        "typesUsed": used,
+        "typesMissing": missing,
+        "nextType": next_type,
+        "question": question,
+        "rule": rule,
     }
 
 
-def get_support_level_methods(level: int) -> Optional[dict[str, Any]]:
-    methods = load_knowledge("support_methods")
-    return next((l for l in methods["supportLevels"] if l["level"] == level), None)
+def offloading_support(stage: Optional[int]) -> Optional[dict[str, Any]]:
+    """오프로딩 단계의 말하는 방식만 돌려준다. 단계가 없으면 None."""
+    if stage not in (1, 2, 3, 4):
+        return None
+    return next(
+        (s for s in load_knowledge("support_methods")["byOffloadingStage"] if s["stage"] == stage),
+        None,
+    )
 
 
 def remaining_observation_types(used_types: list[str]) -> list[dict[str, Any]]:
