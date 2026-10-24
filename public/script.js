@@ -199,23 +199,46 @@ function pushChat(entry, mode = currentMode) {
 }
 
 // ---------------------------------------------------------------------------
-// 사진 고르기: 탭마다 5장 중 한 장을 골라 관찰한다.
+// 사진 고르기: 탭마다 5장 중 최대 두 장을 골라 나란히 본다.
+// 먼저 고른 사진이 왼쪽, 나중에 고른 사진이 오른쪽이다.
 // ---------------------------------------------------------------------------
 function modeImages(mode = currentMode) {
   return modeInfo(mode)?.images || [];
 }
 
-function selectedImage(mode = currentMode) {
+function selectedImages(mode = currentMode) {
   const list = modeImages(mode);
-  const saved = localStorage.getItem(storeKey("image", mode));
-  return list.includes(saved) ? saved : list[0] || null;
+  const saved = loadJson(storeKey("images", mode), null);
+  let names = Array.isArray(saved) ? saved.filter((name) => list.includes(name)) : [];
+  if (!names.length) {
+    const older = localStorage.getItem(storeKey("image", mode));
+    if (list.includes(older)) names = [older];
+  }
+  if (!names.length && list[0]) names = [list[0]];
+  return names.slice(0, 2);
+}
+
+function selectedImage(mode = currentMode) {
+  return selectedImages(mode)[0] || null;
 }
 
 function showSelectedImage() {
-  const name = selectedImage();
-  if (name) {
-    const next = `images/${name}`;
+  const picked = selectedImages();
+  const left = picked[0];
+  const right = picked[1];
+  const slot2 = $("image-slot-2");
+  const compare = $("compare-image");
+  if (left) {
+    const next = `images/${left}`;
     if (!mainImage.src.endsWith(next)) mainImage.src = next;
+  }
+  if (right && compare && slot2) {
+    const next = `images/${right}`;
+    if (!compare.src.endsWith(next)) compare.src = next;
+    slot2.classList.remove("hidden");
+  } else if (slot2) {
+    slot2.classList.add("hidden");
+    if (compare) compare.removeAttribute("src");
   }
   renderImagePicker();
   if (typeof window.redrawMeasurements === "function") window.redrawMeasurements();
@@ -223,14 +246,15 @@ function showSelectedImage() {
 
 function renderImagePicker() {
   const list = modeImages();
-  const current = selectedImage();
+  const picked = selectedImages();
   imagePicker.innerHTML = "";
   imagePicker.hidden = list.length < 2;
   list.forEach((name, i) => {
     const btn = document.createElement("button");
+    const on = picked.includes(name);
     btn.type = "button";
-    btn.className = "image-thumb" + (name === current ? " selected" : "");
-    btn.setAttribute("aria-pressed", name === current ? "true" : "false");
+    btn.className = "image-thumb" + (on ? " selected" : "");
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
     btn.title = `사진 ${i + 1}`;
     const img = document.createElement("img");
     img.src = `images/${name}`;
@@ -242,18 +266,35 @@ function renderImagePicker() {
     btn.appendChild(img);
     btn.appendChild(badge);
     btn.addEventListener("click", () => {
-      if (name === selectedImage()) return;
-      localStorage.setItem(storeKey("image", currentMode), name);
+      const cur = selectedImages();
+      const pos = cur.indexOf(name);
+      let next;
+      if (pos >= 0) {
+        if (cur.length === 1) return;
+        next = cur.filter((item) => item !== name);
+      } else if (cur.length < 2) {
+        next = cur.concat(name);
+      } else {
+        next = [cur[0], name];
+      }
+      localStorage.setItem(storeKey("images", currentMode), JSON.stringify(next));
       showSelectedImage();
     });
     imagePicker.appendChild(btn);
   });
 }
 
-// 문장 옆에 붙일 "사진 N" 이름. 사진 목록에 없으면 빈 문자열.
+// 문장 옆에 붙일 사진 번호. 두 장이면 "왼쪽 사진 N 오른쪽 사진 M".
 function photoLabel(name, mode = currentMode) {
   const idx = modeImages(mode).indexOf(name);
   return idx >= 0 ? `사진 ${idx + 1}` : "";
+}
+
+function sentencePhotoLabel(sentence, mode = currentMode) {
+  const left = photoLabel(sentence.image, mode);
+  const right = photoLabel(sentence.imageRight, mode);
+  if (left && right) return `왼쪽 ${left} 오른쪽 ${right}`;
+  return left;
 }
 
 // ---------------------------------------------------------------------------
@@ -338,7 +379,7 @@ function renderSentences() {
   sentenceList.innerHTML = "";
   list.forEach((s, i) => {
     const li = document.createElement("li");
-    const label = photoLabel(s.image);
+    const label = sentencePhotoLabel(s);
     if (label) {
       const tag = document.createElement("span");
       tag.className = "sentence-photo";
@@ -515,7 +556,7 @@ async function sendToAI(text, kind) {
   try {
     const data = await api("/api/chat", {
       method: "POST",
-      body: { message: text, studentId, sessionId, mode: currentMode, kind, image: selectedImage() },
+      body: { message: text, studentId, sessionId, mode: currentMode, kind, image: selectedImage(), images: selectedImages() },
     });
     loadingEl.remove();
     addMessage(data.answer, "ai");
@@ -559,7 +600,8 @@ function elapsedSeconds() {
 
 function addSentence(text) {
   const cur = loadSentences();
-  cur.push({ text, t: elapsedSeconds(), image: selectedImage() });
+  const picked = selectedImages();
+  cur.push({ text, t: elapsedSeconds(), image: picked[0] || null, imageRight: picked[1] || null });
   saveSentences(cur);
   renderSentences();
 }

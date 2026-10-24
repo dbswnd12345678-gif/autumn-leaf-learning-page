@@ -150,10 +150,11 @@ def _add_tool_calls_sheet(wb: Workbook, tool_calls: list[dict[str, Any]]):
 
 
 DIAGNOSIS_HEADERS = [
-    "학번", "모드", "종류", "기록 시각(UTC)", "관찰력 수준", "오프로딩 단계", "수준/단계 이름",
+    "학번", "모드", "종류", "기록 시각(UTC)", "오프로딩 단계", "오프로딩 단계 이름",
     "점수(OQ_A)", "제출 문장 수", "범위 밖 문장 수", "다양도 D", "정량 문장 수", "사용한 관찰 유형",
-    "AI 요청 수", "관찰 대행 비율", "AI 반영 비율", "사진 일치율", "수준 판정 출처", "LLM 판정 상태",
+    "AI 요청 수", "관찰 대행 비율", "AI 반영 비율", "사진 일치율", "판정 출처", "LLM 판정 상태",
     "LLM 판정 근거", "도구 누락 턴 수", "지원 수준",
+    "사진 일치 문장 수", "사진 불일치 문장 수", "사진 알 수 없음 문장 수",
 ]
 
 
@@ -171,9 +172,8 @@ def _add_diagnoses_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
                 MODE_LABELS.get(d.get("mode"), d.get("mode")),
                 d.get("kind"),
                 d.get("created_at"),
-                p.get("level"),
                 p.get("stage"),
-                p.get("levelLabel") or p.get("stageLabel"),
+                p.get("stageLabel"),
                 p.get("score"),
                 p.get("sentenceCount") if p.get("sentenceCount") is not None else p.get("submittedSentenceCount"),
                 p.get("outOfScopeMessageCount"),
@@ -184,11 +184,14 @@ def _add_diagnoses_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
                 p.get("delegateShare"),
                 p.get("reuseRatio"),
                 judge.get("photoMatchRate"),
-                p.get("finalLevelSource") or p.get("finalStageSource") or p.get("method"),
+                p.get("finalStageSource") or p.get("method"),
                 p.get("judgeStatus"),
                 judge.get("rationale"),
                 p.get("toolSkippedTurns"),
                 ", ".join(str(x) for x in (p.get("supportLevels") or [])),
+                (judge.get("photoMatchCounts") or {}).get("match"),
+                (judge.get("photoMatchCounts") or {}).get("mismatch"),
+                (judge.get("photoMatchCounts") or {}).get("unknown"),
             ]
         )
     for row in ws.iter_rows(min_row=2):
@@ -199,6 +202,12 @@ def _add_diagnoses_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
 
 
 OUT_OF_SCOPE_LABELS = {"nonVisualSense": "시각 이외 감각", "timeFlow": "시간 흐름"}
+PHOTO_MATCH_LABELS = {
+    "match": "일치",
+    "mismatch": "불일치",
+    "unknown": "알 수 없음",
+    "partly": "일부 일치",
+}
 
 
 def _unit_text(unit: dict[str, Any]) -> str:
@@ -216,7 +225,8 @@ def _add_classification_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
     """탭 1(관찰력 진단)과 탭 3(지원 후 관찰)의 문장별 분류 결과를 한 줄씩 적는다."""
     ws = wb.create_sheet(title="관찰분류")
     ws.append(
-        ["학번", "모드", "번호", "관찰 문장", "사진", "LE", "정보 단위(객관도-측정-비교-범위)",
+        ["학번", "모드", "번호", "관찰 문장", "사진 번호", "사진", "오른쪽 사진 번호", "오른쪽 사진", "사진 일치",
+         "LE", "정보 단위(객관도-측정-비교-범위)",
          "ΣDO", "LE×ΣDO", "범위 밖 표시", "분류 출처"]
     )
     for cell in ws[1]:
@@ -232,7 +242,11 @@ def _add_classification_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
                     MODE_LABELS.get(d.get("mode"), d.get("mode")),
                     i,
                     m.get("text"),
+                    m.get("photoNumber"),
                     m.get("image"),
+                    m.get("photoNumberRight"),
+                    m.get("imageRight"),
+                    PHOTO_MATCH_LABELS.get(m.get("photoMatch"), ""),
                     m.get("le"),
                     " / ".join(_unit_text(u) for u in m.get("units") or []),
                     m.get("sumDO"),
@@ -272,7 +286,7 @@ def _add_mode_sessions_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
 
 def _add_sentences_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
     ws = wb.create_sheet(title="제출문장")
-    ws.append(["학번", "모드", "번호", "시작 후 경과(초)", "관찰 문장", "사진"])
+    ws.append(["학번", "모드", "번호", "시작 후 경과(초)", "관찰 문장", "왼쪽 사진", "오른쪽 사진"])
     for cell in ws[1]:
         cell.font = Font(bold=True)
     for m in mode_sessions:
@@ -285,6 +299,7 @@ def _add_sentences_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
                     sent.get("t") if isinstance(sent, dict) else None,
                     sent.get("text") if isinstance(sent, dict) else str(sent),
                     sent.get("image") if isinstance(sent, dict) else None,
+                    sent.get("imageRight") if isinstance(sent, dict) else None,
                 ]
             )
     for row in ws.iter_rows(min_row=2):

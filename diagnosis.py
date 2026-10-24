@@ -3,9 +3,9 @@
 
 하는 일:
   - knowledge/*.json(코드북, 지원 규칙표)을 읽는다.
-  - 탭 1(관찰력): Agent가 문장을 정보 단위로 분류하면, 서버가 객관도 합, 다양도 D, 지수 OQ_A, 수준(1~3)을 계산한다.
+  - 탭 1(관찰력): Agent가 문장을 정보 단위로 분류하면, 서버가 객관도 합, 다양도 D, 지수 OQ_A를 계산한다.
   - 탭 2(오프로딩): 학생 요청 유형, AI 답변이 제출 문장에 반영된 정도로 단계(1~4)를 계산한다.
-  - 탭 3(지원): 관찰력 수준 x 오프로딩 단계로 지원 수준(1~3)을 정한다.
+  - 탭 3(지원): 사용한 관찰 유형과 오프로딩 단계를 각각 본다.
   - LLM 판정용 프롬프트를 만들고, 돌아온 JSON을 안전하게 읽는다.
 
 관찰 문장의 분류는 Agent만 한다. Agent 기록이 오기 전에는 문장 원문만 두고, 단어 규칙으로 유형이나 객관도를 채우지 않는다.
@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
+# 관찰 기준은 v5만 읽는다. observation_rubric.json(1.0)은 사용하지 않는다.
+OBSERVATION_RUBRIC = "observation_rubric_v5.draft"
 
 _cache: dict[str, Any] = {}
 
@@ -49,21 +51,28 @@ def normalize_sentences(raw: list[Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for item in raw or []:
         image = None
+        image_right = None
         if isinstance(item, str):
             text, t = item, None
         elif isinstance(item, dict):
             text, t = item.get("text", ""), item.get("t")
             image = item.get("image")
+            image_right = item.get("imageRight")
         else:
             continue
         text = str(text or "").strip()
         if not text:
             continue
+        right = image_right if isinstance(image_right, str) else None
+        left = image if isinstance(image, str) else None
+        if right and right == left:
+            right = None
         result.append(
             {
                 "text": text[:500],
                 "t": t if isinstance(t, (int, float)) else None,
-                "image": image if isinstance(image, str) else None,
+                "image": left,
+                "imageRight": right,
             }
         )
     return result[:60]
@@ -73,10 +82,36 @@ def images_used(sentences: list[dict[str, Any]]) -> list[str]:
     """문장에 적힌 사진 파일 이름을 처음 나온 순서대로, 중복 없이 돌려준다."""
     seen: list[str] = []
     for s in sentences:
-        name = s.get("image")
-        if name and name not in seen:
-            seen.append(name)
+        for key in ("image", "imageRight"):
+            name = s.get(key)
+            if name and name not in seen:
+                seen.append(name)
     return seen
+
+
+def photo_number(image: Optional[str], ordered_images: list[str]) -> Optional[int]:
+    """화면 썸네일 순서의 사진 번호. 맨 왼쪽이 1이다."""
+    if image and image in ordered_images:
+        return ordered_images.index(image) + 1
+    return None
+
+
+# 문장마다 적는 사진 일치. partly는 예전 제출 전체 값이라 문장 값으로는 받지 않고 알 수 없음으로 본다.
+_SENTENCE_PHOTO_MATCH = {
+    "match": "match",
+    "일치": "match",
+    "mismatch": "mismatch",
+    "불일치": "mismatch",
+    "unknown": "unknown",
+    "알수없음": "unknown",
+    "partly": "unknown",
+}
+
+
+def sentence_photo_match(token: str) -> Optional[str]:
+    """문장 하나의 사진 일치 표기를 match, mismatch, unknown 중 하나로 읽는다."""
+    key = re.sub(r"\s+", "", token or "").lower()
+    return _SENTENCE_PHOTO_MATCH.get(key)
 
 
 def _bigrams(text: str) -> set[str]:
@@ -116,7 +151,7 @@ def type_id(measurement: str, comparison: str, scope: str) -> str:
 
 
 def all_type_ids() -> list[str]:
-    return [t["id"] for t in load_knowledge("observation_rubric")["diversity"]["types"]]
+    return [t["id"] for t in load_knowledge(OBSERVATION_RUBRIC)["diversity"]["types"]]
 
 
 def make_unit(
@@ -167,9 +202,11 @@ def parse_unit(token: str) -> Optional[dict[str, Any]]:
 
 
 def parse_agent_messages(raw: Any) -> dict[int, dict[str, Any]]:
-    """기록 Flow의 messages 문자열을 {문장번호: {le, units}}로 바꾼다.
+    """기록 Flow의 messages 문자열을 {문장번호: {le, units, photoMatch}}로 바꾼다.
 
-    형식: "1:2:2-정성-단수-부분,2-정성-단수-부분;2:1:3-정량-단수-전체;3:1:OOS-감각;4:1:0"
+    현재 형식: "1:2:match:2-정성-단수-부분;2:1:mismatch:0;3:1:unknown:3-정량-단수-전체"
+    이전 형식: "1:2:2-정성-단수-부분,2-정성-단수-부분;2:1:3-정량-단수-전체"
+    일치값이 없는 이전 형식은 photoMatch가 None이다.
     따옴표나 줄바꿈이 섞여도 읽을 수 있게 느슨하게 처리한다.
     """
     text = str(raw or "").replace("；", ";").replace("：", ":").replace("，", ",")
@@ -178,37 +215,37 @@ def parse_agent_messages(raw: Any) -> dict[int, dict[str, Any]]:
         chunk = chunk.strip().strip("\"'` ")
         if not chunk:
             continue
-        parts = chunk.split(":", 2)
+        parts = [p.strip() for p in chunk.split(":")]
         if len(parts) < 2:
             continue
         digits = re.sub(r"\D", "", parts[0])
         if not digits:
             continue
         index = int(digits)
-        if len(parts) == 3:
+        photo: Optional[str] = None
+        if len(parts) >= 4 and sentence_photo_match(parts[2]):
             le_digits = re.sub(r"\D", "", parts[1])
-            units_raw = parts[2]
+            photo = sentence_photo_match(parts[2])
+            units_raw = ":".join(parts[3:])
+        elif len(parts) == 3 and sentence_photo_match(parts[2]):
+            le_digits = re.sub(r"\D", "", parts[1])
+            photo = sentence_photo_match(parts[2])
+            units_raw = "0" if photo == "mismatch" else ""
+        elif len(parts) >= 3:
+            le_digits = re.sub(r"\D", "", parts[1])
+            units_raw = ":".join(parts[2:])
         else:
             le_digits = ""
             units_raw = parts[1]
         le = int(le_digits) if le_digits else 1
         le = le if 1 <= le <= 10 else 1
         units = [u for u in (parse_unit(x) for x in units_raw.split(",")) if u]
-        result[index] = {"le": le, "units": units}
+        result[index] = {"le": le, "units": units, "photoMatch": photo}
     return result
 
 
-def level_from_oq(oq: float) -> dict[str, Any]:
-    rows = load_knowledge("observation_rubric")["levelThresholds"]["levels"]
-    chosen = rows[0]
-    for row in rows:
-        if oq >= row["minOQ"]:
-            chosen = row
-    return chosen
-
-
 def compute_observation_index(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    """분류가 끝난 문장 목록으로 객관도 합, 다양도 D, OQ_A, 수준을 계산한다.
+    """분류가 끝난 문장 목록으로 객관도 합, 다양도 D, OQ_A를 계산한다.
 
     messages의 각 원소는 {le, units, ...}이다. 계산 결과를 담은 새 목록과 요약을 돌려준다.
     범위 밖(outOfScope)으로 표시된 단위와 객관도 0인 단위는 합계와 D에서 뺀다.
@@ -243,7 +280,6 @@ def compute_observation_index(messages: list[dict[str, Any]]) -> dict[str, Any]:
 
     d = len(types_used)
     oq = total * d
-    level_row = level_from_oq(oq)
     ordered = [t for t in all_type_ids() if t in types_used]
     return {
         "messages": computed,
@@ -252,8 +288,6 @@ def compute_observation_index(messages: list[dict[str, Any]]) -> dict[str, Any]:
         "typesUsed": ordered,
         "typesMissing": [t for t in all_type_ids() if t not in types_used],
         "oqA": oq,
-        "level": level_row["level"],
-        "levelLabel": level_row["label"],
         "outOfScopeCounts": flag_counts,
         "outOfScopeMessageCount": sum(1 for m in computed if m["outOfScope"]),
         "quantitativeMessageCount": quantitative_messages,
@@ -266,7 +300,7 @@ def _observation_payload(
     summary = compute_observation_index(base_messages)
     payload = {
         "method": method,
-        "rubricVersion": load_knowledge("observation_rubric").get("version"),
+        "rubricVersion": load_knowledge(OBSERVATION_RUBRIC).get("version"),
         "sentenceCount": len(base_messages),
         # 아래 세 값은 이전 형식과 같은 이름을 유지한다(엑셀, 탭 3 조회에서 사용).
         "varietyCount": summary["D"],
@@ -279,13 +313,20 @@ def _observation_payload(
     return payload
 
 
-def unclassified_observation(sentences: list[dict[str, Any]]) -> dict[str, Any]:
+def unclassified_observation(
+    sentences: list[dict[str, Any]], ordered_images: Optional[list[str]] = None
+) -> dict[str, Any]:
     """제출 직후 기록. 문장 원문만 남기고 유형, 객관도, 수준은 비워 둔다."""
+    ordered = ordered_images or []
     messages = [
         {
             "text": s["text"],
             "t": s.get("t"),
             "image": s.get("image"),
+            "imageRight": s.get("imageRight"),
+            "photoNumber": photo_number(s.get("image"), ordered),
+            "photoNumberRight": photo_number(s.get("imageRight"), ordered),
+            "photoMatch": None,
             "le": None,
             "units": [],
             "source": "pending",
@@ -297,20 +338,17 @@ def unclassified_observation(sentences: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     return {
         "method": "unclassified",
-        "rubricVersion": load_knowledge("observation_rubric").get("version"),
+        "rubricVersion": load_knowledge(OBSERVATION_RUBRIC).get("version"),
         "sentenceCount": len(messages),
         "messages": messages,
         "typesUsed": [],
         "typesMissing": all_type_ids(),
         "D": None,
         "oqA": None,
-        "level": None,
-        "levelLabel": None,
         "varietyCount": None,
         "quantitySentenceCount": None,
         "score": None,
         "contributionSum": None,
-        "finalLevelSource": None,
         "judge": None,
         "outOfScopeCounts": {},
         "outOfScopeMessageCount": 0,
@@ -322,7 +360,6 @@ def apply_agent_observation(
     stored: dict[str, Any],
     agent_messages: dict[int, dict[str, Any]],
     photo_match: str,
-    rationale: str,
 ) -> dict[str, Any]:
     """Agent가 기록한 분류를 제출 문장에 입히고 지수를 다시 계산한다.
 
@@ -334,8 +371,14 @@ def apply_agent_observation(
         rec = agent_messages.get(i)
         if rec is None:
             continue
+        units = rec["units"]
+        sentence_match = rec.get("photoMatch")
+        # 사진과 다른 문장은 분류 내용과 관계없이 관찰이 아닌 것으로 남긴다.
+        if sentence_match == "mismatch":
+            units = [make_unit(0)]
         m["le"] = rec["le"]
-        m["units"] = rec["units"]
+        m["units"] = units
+        m["photoMatch"] = sentence_match
         m["source"] = "agent"
     # 기록을 두 번에 나누어 보내도 합쳐서 센다.
     covered = sum(1 for m in messages if m.get("source") == "agent")
@@ -348,12 +391,13 @@ def apply_agent_observation(
     else:
         method = "partial"
 
-    rate = {"match": 1.0, "partly": 0.5, "mismatch": 0.0}.get(photo_match)
+    overall, rate, counts, by_image = _photo_match_summary(messages, photo_match)
     judge = {
         "recordedBy": "agent",
-        "rationale": (rationale or "")[:500],
-        "photoMatch": photo_match,
+        "photoMatch": overall,
         "photoMatchRate": rate,
+        "photoMatchCounts": counts,
+        "photoMatchByImage": by_image,
         "agentMessageCount": covered,
         "ignoredIndexes": ignored,
     }
@@ -361,7 +405,6 @@ def apply_agent_observation(
         messages,
         method,
         {
-            "finalLevelSource": method if method == "agent" else None,
             "judge": judge,
             **{k: stored[k] for k in ("sentencesTruncated",) if k in stored},
         },
@@ -369,21 +412,60 @@ def apply_agent_observation(
     if method != "agent":
         payload["oqA"] = None
         payload["score"] = None
-        payload["level"] = None
-        payload["levelLabel"] = None
     return payload
 
 
-def apply_legacy_level(stored: dict[str, Any], level: int, photo_match: str, rationale: str) -> dict[str, Any]:
-    """이전 형식(level만 기록)을 받았을 때의 호환 처리. 문장별 분류는 만들지 않고 수준만 적는다."""
+def _photo_match_summary(
+    messages: list[dict[str, Any]], fallback: str
+) -> tuple[str, Optional[float], dict[str, int], dict[str, dict[str, Any]]]:
+    """문장별 사진 일치를 모아 전체 값, 일치율, 개수, 사진별 개수를 만든다.
+
+    알 수 없음은 일치율에서 빼며, 그 문장의 관찰 분류는 유지된 상태이다.
+    문장별 값이 하나도 없으면 제출 전체에 대해 넘어온 이전 값을 쓴다.
+    """
+    counts = {"match": 0, "mismatch": 0, "unknown": 0}
+    by_image: dict[str, dict[str, Any]] = {}
+    for m in messages:
+        token = m.get("photoMatch")
+        if token not in counts:
+            continue
+        counts[token] += 1
+        name = m.get("image") or ""
+        bucket = by_image.setdefault(
+            name,
+            {
+                "photoNumber": m.get("photoNumber"),
+                "match": 0,
+                "mismatch": 0,
+                "unknown": 0,
+            },
+        )
+        bucket[token] += 1
+    if not any(counts.values()):
+        overall = fallback if fallback in ("match", "partly", "mismatch", "unknown") else "unknown"
+        rate = {"match": 1.0, "partly": 0.5, "mismatch": 0.0}.get(overall)
+        return overall, rate, counts, by_image
+    if counts["match"] and counts["mismatch"]:
+        overall = "partly"
+    elif counts["mismatch"]:
+        overall = "mismatch"
+    elif counts["match"]:
+        overall = "match"
+    else:
+        overall = "unknown"
+    decided = counts["match"] + counts["mismatch"]
+    rate = (counts["match"] / decided) if decided else None
+    return overall, rate, counts, by_image
+
+
+def apply_legacy_level(stored: dict[str, Any], _level: int, photo_match: str) -> dict[str, Any]:
+    """이전 형식(level만 기록)을 받았을 때의 처리. 학생 수준 1~3은 저장하지 않는다."""
     result = dict(stored)
-    rows = load_knowledge("observation_rubric")["levelThresholds"]["levels"]
-    result["level"] = level
-    result["levelLabel"] = next((r["label"] for r in rows if r["level"] == level), "")
-    result["finalLevelSource"] = "agent_level_only"
+    result.pop("level", None)
+    result.pop("levelLabel", None)
+    result.pop("finalLevelSource", None)
     result["judge"] = {
         "recordedBy": "agent",
-        "rationale": (rationale or "")[:500],
         "photoMatch": photo_match,
         "photoMatchRate": {"match": 1.0, "partly": 0.5, "mismatch": 0.0}.get(photo_match),
         "legacyLevelOnly": True,
@@ -553,25 +635,47 @@ def extract_json(text: str) -> Optional[dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
-def build_observation_agent_message(student_id: str, sentences: list[dict[str, Any]]) -> str:
-    """관찰력 진단 워크스페이스의 Agent에게 보내는 메시지. 절차는 시스템 프롬프트에 있다."""
-    # 사진이 여러 장이면 문장마다 [사진N]을 붙인다. N은 첨부한 사진의 순서(images_used)와 같다.
-    used = images_used(sentences)
-    multi = len(used) > 1
+def build_observation_agent_message(
+    student_id: str,
+    sentences: list[dict[str, Any]],
+    ordered_images: Optional[list[str]] = None,
+    attached_images: Optional[list[str]] = None,
+) -> str:
+    """관찰력 진단 워크스페이스의 Agent에게 보내는 메시지. 절차는 시스템 프롬프트에 있다.
+
+    [사진N]의 N은 화면 썸네일 번호와 같다. ordered_images가 그 순서이다.
+    attached_images는 실제로 첨부한 파일이며, 안내 문장에서 몇 번째 첨부인지 알려 준다.
+    """
+    catalog = list(ordered_images or [])
+    attached = list(catalog if attached_images is None else attached_images)
 
     def label(s: dict[str, Any]) -> str:
-        if multi and s.get("image") in used:
-            return f"[사진{used.index(s['image']) + 1}] "
-        return ""
+        left = photo_number(s.get("image"), catalog)
+        right = photo_number(s.get("imageRight"), catalog)
+        if left and right:
+            return f"[왼쪽 사진{left}, 오른쪽 사진{right}] "
+        return f"[사진{left}] " if left else ""
 
     numbered = (
         "\n".join(f"{i + 1}. {label(s)}{s['text']}" for i, s in enumerate(sentences))
         or "(제출 문장 없음)"
     )
+    pairs = [
+        f"사진 {catalog.index(name) + 1}=첨부 {i}"
+        for i, name in enumerate(attached, start=1)
+        if name in catalog
+    ]
+    pair_note = ""
+    if any(s.get("imageRight") for s in sentences):
+        pair_note = (
+            " 왼쪽 사진과 오른쪽 사진이 함께 적힌 문장은 그 두 장을 나란히 본 관찰입니다. "
+            "1번째와 첫번째는 왼쪽 사진, 2번째와 두번째는 오른쪽 사진입니다."
+        )
     photo_note = (
-        f"\n\n[사진 안내] 첨부한 사진은 모두 {len(used)}장이며 [사진1]부터 순서대로입니다. "
-        "각 문장은 앞에 적힌 번호의 사진과 비교하세요."
-        if multi
+        "\n\n[사진 안내] 문장의 사진 번호는 화면 썸네일 번호와 같습니다. "
+        f"첨부 대응: {', '.join(pairs)}. 그 번호의 사진과 그 문장을 비교하세요."
+        f"{pair_note}"
+        if pairs
         else ""
     )
     count_note = (

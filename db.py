@@ -1,13 +1,11 @@
 """
-SQLite storage for per-student observation history.
+학생별 관찰 기록을 SQLite에 저장한다.
 
-Design notes:
-- The old Node.js version wrote one JSONL file per browser session_id.
-  Students now attend 3 separate class sessions (possibly different
-  browsers/devices), so we key history by a persistent student_id that
-  the student types in once per session (see public/script.js).
-- session_id is still stored alongside each row so we can tell which
-  class session / browser session a given turn came from.
+설계:
+- 예전 Node.js 버전은 브라우저 session_id마다 JSONL 파일을 썼다.
+  지금은 학생이 수업 3회에 참여하고 브라우저나 기기가 달라질 수 있으므로,
+  학생이 세션마다 한 번 입력하는 student_id로 기록을 묶는다(public/script.js).
+- session_id도 각 행에 남겨, 어느 수업·브라우저 세션의 턴인지 구분한다.
 """
 
 import json
@@ -43,11 +41,9 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE INDEX IF NOT EXISTS idx_observations_student ON observations(student_id);
 CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id);
 
--- Every call the AnythingLLM Agent makes to one of our /api/tools/* endpoints
--- gets logged here, regardless of what it decides to do with the result.
--- This is how we verify (for the thesis) whether/how often the agent
--- actually chose to consult pedagogy/history/knowledge-graph tools, instead
--- of assuming it always does.
+-- Agent가 /api/tools/* 를 부를 때마다 여기 남긴다.
+-- 호출 결과로 답을 어떻게 쓸지는 이 표가 정하지 않고, 호출 사실만 기록한다.
+-- 연구 기록에서 기준 조회, 결과 기록, 지원 방법 조회를 실제로 불렀는지 확인하는 데 쓴다.
 CREATE TABLE IF NOT EXISTS tool_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id TEXT NOT NULL,
@@ -77,7 +73,7 @@ CREATE TABLE IF NOT EXISTS mode_sessions (
     UNIQUE (student_id, mode)
 );
 
--- 진단 결과(관찰력 수준, 오프로딩 단계 등)를 JSON 문자열로 저장한다.
+-- 진단 결과(관찰 지수, 오프로딩 단계 등)를 JSON 문자열로 저장한다.
 -- 구조가 바뀌어도 표를 고치지 않도록 payload 한 칼럼에 담는다.
 CREATE TABLE IF NOT EXISTS diagnoses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,9 +103,9 @@ def get_connection() -> sqlite3.Connection:
 
 
 def backup_bytes() -> bytes:
-    """Return a consistent snapshot of the database file (read-only for the live DB).
+    """데이터베이스 파일을 일관된 스냅샷으로 돌려준다. 실행 중인 DB는 읽기만 한다.
 
-    Uses SQLite's online backup API, so it is safe while the server is writing.
+    SQLite 온라인 백업을 쓰므로 서버가 쓰는 중에도 안전하다.
     """
     import tempfile
 
@@ -271,10 +267,8 @@ def list_students() -> list[dict[str, Any]]:
         ).fetchall()
         students = [dict(r) for r in rows]
 
-        # Merge in tool-call counts per student per tool, so the admin page
-        # can show (at a glance) whether the agent is actually calling
-        # "학생 관찰 이력 조회" / "교육학 안내 조회" - not just how many chat
-        # turns happened.
+        # 학생별·도구별 호출 횟수를 붙여 관리 화면에서 대화 턴 수와 함께 본다.
+        # history_lookup(학생 관찰 이력 조회), pedagogy_hint(교육학 안내 조회) 횟수를 따로 센다.
         tool_rows = conn.execute(
             "SELECT student_id, tool_name, COUNT(*) AS c FROM tool_calls "
             "GROUP BY student_id, tool_name"
@@ -389,8 +383,7 @@ def get_all_tool_calls() -> list[dict[str, Any]]:
 
 
 def get_tool_call_counts(student_id: str) -> dict[str, int]:
-    """{tool_name: call_count} for this student - used to check compliance
-    (are pedagogy/history tools actually being called every turn?)."""
+    """이 학생의 도구별 호출 횟수. {도구 이름: 횟수}."""
     conn = get_connection()
     try:
         rows = conn.execute(

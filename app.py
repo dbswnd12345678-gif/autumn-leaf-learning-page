@@ -11,7 +11,7 @@
   - public/ 아래 학습 페이지(HTML/CSS/JS, 단풍 사진)를 제공한다.
   - /api/session/*   모드별 10분 세션(서버 기준 시작·마감 시각)을 관리한다.
   - /api/chat        탭 2·3의 대화를 모드에 맞는 AnythingLLM 워크스페이스로 보낸다.
-  - /api/submit      최종 관찰 문장을 저장하고 진단(관찰력 수준/오프로딩 단계)을 계산한다.
+  - /api/submit      최종 관찰 문장을 저장하고 진단(OQ_A, 다양도, 오프로딩 단계)을 계산한다.
   - /api/tools/*     AnythingLLM Agent Flow가 부르는 조회 주소다. 호출마다 tool_calls에 기록한다.
   - 대화와 진단은 학번(studentId) 기준으로 SQLite에 쌓인다.
 """
@@ -348,13 +348,11 @@ def session_start(req: SessionStartRequest):
 # /api/chat (탭 2, 탭 3)
 # ---------------------------------------------------------------------------
 
-def student_levels(student_id: str) -> tuple[Optional[int], Optional[int]]:
-    """저장된 진단에서 (관찰력 수준, 오프로딩 단계)를 꺼낸다. 없으면 None."""
-    assess = db.get_diagnosis(student_id, "assess")
+def student_levels(student_id: str) -> tuple[None, Optional[int]]:
+    """저장된 진단에서 오프로딩 단계를 꺼낸다. 관찰력 수준 1~3은 저장하지 않는다."""
     offload = db.get_diagnosis(student_id, "offload")
-    obs_level = (assess or {}).get("payload", {}).get("level")
     off_stage = (offload or {}).get("payload", {}).get("stage")
-    return obs_level, off_stage
+    return None, off_stage
 
 
 def build_support_message(
@@ -386,8 +384,9 @@ class ChatRequest(BaseModel):
     mode: str
     # question: 학생이 AI에게 한 질문·요청, sentence: 탭 3에서 입력한 관찰 문장
     kind: str = "question"
-    # 학생이 지금 보고 있는 사진 파일 이름. 이 탭의 사진 목록에 없으면 첫 사진으로 본다.
+    # 학생이 지금 보고 있는 사진. images는 왼쪽부터 최대 두 장이고, image는 왼쪽 한 장이다.
     image: Optional[str] = None
+    images: Optional[list[str]] = None
 
 
 @app.post("/api/chat")
@@ -413,11 +412,24 @@ async def chat(req: ChatRequest):
     if not slug:
         raise HTTPException(500, "이 모드의 AnythingLLM 워크스페이스 slug가 설정되지 않았습니다.")
 
-    # 학생이 고른 사진 한 장을 AI에게 보여 준다. 이 탭에서 허용한 사진만 받는다.
+    # 학생이 고른 사진을 AI에게 보여 준다. 왼쪽부터 최대 두 장이고, 이 탭의 사진만 받는다.
     mode_images = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
-    chosen = req.image if req.image in mode_images else (mode_images[0] if mode_images else None)
-    images = [chosen] if chosen else []
+    requested = [name for name in (req.images or []) if name in mode_images]
+    if not requested and req.image in mode_images:
+        requested = [req.image]
+    if not requested and mode_images:
+        requested = [mode_images[0]]
+    images = []
+    for name in requested:
+        if name not in images:
+            images.append(name)
+        if len(images) == 2:
+            break
     attachments = [a for a in (load_image_attachment(name) for name in images) if a]
+    if len(images) == 2:
+        left_no = mode_images.index(images[0]) + 1
+        right_no = mode_images.index(images[1]) + 1
+        message = f"[왼쪽 사진{left_no}, 오른쪽 사진{right_no}]\n{message}"
 
     support_level: Optional[int] = None
     last_tool_id = 0
@@ -430,7 +442,7 @@ async def chat(req: ChatRequest):
         )
         last_tool_id = db.get_max_tool_call_id(student_id)
     else:
-        # 탭 2는 학생이 평소 쓰는 AI에 가깝게 두기 위해, 태그나 @agent 없이 질문 그대로 보낸다.
+        # 탭 2는 @agent 없이 학생의 말을 보낸다. 사진이 두 장이면 왼쪽·오른쪽 번호만 앞에 붙인다.
         agent_message = message
 
     answer = sanitize_answer(
@@ -458,7 +470,7 @@ async def chat(req: ChatRequest):
         student_id=student_id,
         session_id=session_id,
         images=images,
-        comparison_mode=False,
+        comparison_mode=len(images) == 2,
         question=message,
         answer=answer,
         objectivity_score=None,
@@ -504,8 +516,18 @@ async def run_judge(
         if mode == "assess":
             # 관찰력 진단: Agent가 기준 조회 Flow와 결과 기록 Flow를 불러 DB에 직접 기록한다.
             # 서버는 답변 문장을 쓰지 않고, 기록이 실제로 남았는지만 확인한다.
-            prompt = diagnosis.build_observation_agent_message(student_id, sentences)
-            attachments = [a for a in (load_image_attachment(n) for n in image_names) if a]
+            # 첨부는 화면 썸네일 순서 그대로다. [사진N]의 N이 그 순서와 같다.
+            catalog = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
+            attachments = []
+            attached_names: list[str] = []
+            for name in catalog:
+                item = load_image_attachment(name)
+                if item:
+                    attachments.append(item)
+                    attached_names.append(name)
+            prompt = diagnosis.build_observation_agent_message(
+                student_id, sentences, catalog, attached_names
+            )
             await call_anythingllm(
                 slug, prompt, f"judge-{student_id}-{mode}-{int(utc_now().timestamp())}",
                 attachments, timeout=150.0,
@@ -560,22 +582,27 @@ async def submit(req: SubmitRequest, background: BackgroundTasks):
     for s in sentences:
         if s.get("image") not in mode_images:
             s["image"] = None
+        if s.get("imageRight") not in mode_images or s.get("imageRight") == s.get("image"):
+            s["imageRight"] = None
     if not db.submit_session(student_id, mode, sentences, req.auto):
         return {"ok": True, "alreadySubmitted": True}
 
     turns = db.get_mode_observations(student_id, mode)
-    # LLM 판정에는 학생이 실제로 문장을 쓴 사진만 보낸다. 사진 정보가 없으면 시작할 때 저장한 사진을 쓴다.
-    image_names = diagnosis.images_used(sentences) or [
-        img for img in session.get("images", []) if img in ALLOWED_IMAGES
-    ][:1]
+    # 탭 1 판정은 썸네일 순서의 사진 전부를 첨부한다. 그 외에는 문장에 적힌 사진만 보낸다.
+    if mode == "assess":
+        image_names = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
+    else:
+        image_names = diagnosis.images_used(sentences) or [
+            img for img in session.get("images", []) if img in ALLOWED_IMAGES
+        ][:1]
 
     if mode == "assess":
-        payload = diagnosis.unclassified_observation(sentences)
+        payload = diagnosis.unclassified_observation(sentences, MODE_IMAGES[mode])
     elif mode == "offload":
         payload = diagnosis.score_offloading(turns, sentences, session.get("started_at"))
     else:
         # 탭 3은 진단이 아니라 지원 후 관찰 결과를 기록한다.
-        payload = diagnosis.unclassified_observation(sentences)
+        payload = diagnosis.unclassified_observation(sentences, MODE_IMAGES[mode])
         payload["turnCount"] = len(turns)
         payload["toolSkippedTurns"] = sum(1 for t in turns if t.get("tool_skipped"))
         payload["supportLevels"] = sorted({t["support_level"] for t in turns if t.get("support_level")})
@@ -618,7 +645,7 @@ def tool_observation_criteria(
     """관찰력 진단 기준 조회. 관찰력 진단 Agent가 채점 전에 부른다."""
     require_tool_key(x_tool_key)
     student_id = sanitize_id(studentId) or "unknown"
-    rubric = diagnosis.load_knowledge("observation_rubric")
+    rubric = diagnosis.load_knowledge(diagnosis.OBSERVATION_RUBRIC)
     db.log_tool_call(
         student_id=student_id,
         tool_name="observation_criteria",
@@ -645,10 +672,13 @@ def tool_observation_criteria(
         "photoMatchValues": rubric["photoMatchValues"],
         "recordFormat": rubric["recordFormat"],
         "howToUse": (
-            "제출된 문장마다 정보 단위로 나누고, 단위마다 객관도(0~3)와 측정, 비교, 범위를 정하세요. "
-            "시각 이외 감각이나 시간 흐름이 들어간 단위는 OOS로 표시하세요. 문장마다 LE를 정하세요. "
-            "그 결과를 recordFormat 형식의 messages 한 줄로 observation-result 로 기록하세요. "
-            "OQ_A, D, 수준 계산은 서버가 하니 직접 계산하지 마세요. 학생에게 답변하지 마세요."
+            "문장 앞에 적힌 사진과 그 문장만 비교하세요. [사진N]은 썸네일 번호의 사진 한 장입니다. "
+            "[왼쪽 사진N, 오른쪽 사진M]은 그 두 장입니다. 두 장이 적힌 문장에서만 1번째와 첫번째는 왼쪽 사진, 2번째와 두번째는 오른쪽 사진입니다. "
+            "일치값은 match(일치), mismatch(불일치), unknown(알 수 없음) 중 하나입니다. "
+            "mismatch이면 그 문장의 단위는 0만 쓰세요. 그 문장은 관찰이 아닙니다. "
+            "match와 unknown이면 문장 내용으로 정보 단위, 객관도, 측정, 비교, 범위, LE를 정하세요. "
+            "messages는 recordFormat대로 한 줄입니다. photoMatch 변수는 비우세요. "
+            "OQ_A와 D는 계산하지 마세요. 학생에게 답변하지 마세요."
         ),
     }
 
@@ -657,13 +687,12 @@ class ObservationResult(BaseModel):
     """Agent Flow가 보내는 값은 모두 문자열일 수 있어 느슨하게 받는다."""
 
     studentId: str
-    # 문장별 분류. 형식은 observation_rubric.json의 recordFormat 참고.
+    # 문장별 분류. 형식은 observation_rubric_v5.draft.json의 recordFormat 참고.
     messages: Any = ""
     # 이전 형식(level만 기록) 호환용. messages가 비어 있을 때만 쓴다.
     level: Any = None
     categories: Any = ""
     photoMatch: Any = "unknown"
-    rationale: Any = ""
 
 
 @app.post("/api/tools/observation-result")
@@ -683,8 +712,6 @@ def tool_observation_result(
     match = str(body.photoMatch or "unknown").strip().lower()
     if match not in ("match", "partly", "mismatch", "unknown"):
         match = "unknown"
-    rationale = str(body.rationale or "")
-
     parsed = diagnosis.parse_agent_messages(body.messages)
     legacy_level: Optional[int] = None
     try:
@@ -693,7 +720,7 @@ def tool_observation_result(
         legacy_level = None
 
     if parsed:
-        merged = diagnosis.apply_agent_observation(stored, parsed, match, rationale)
+        merged = diagnosis.apply_agent_observation(stored, parsed, match)
         sentence_count = merged.get("sentenceCount", 0)
         recorded = [i for i in parsed if 1 <= i <= sentence_count]
         # 이번 호출까지 합쳐서 Agent가 아직 기록하지 않은 문장 번호
@@ -702,7 +729,7 @@ def tool_observation_result(
         ]
         summary = (
             f"기록 완료: 문장 {len(recorded)}/{sentence_count}, "
-            f"OQ_A {stored.get('oqA')} -> {merged.get('oqA')}, D={merged.get('D')}, 수준={merged.get('level')}"
+            f"OQ_A {stored.get('oqA')} -> {merged.get('oqA')}, D={merged.get('D')}"
         )
         response: dict[str, Any] = {
             "ok": True,
@@ -712,13 +739,13 @@ def tool_observation_result(
             "missingIndexes": missing,
         }
     elif legacy_level in (1, 2, 3):
-        merged = diagnosis.apply_legacy_level(stored, legacy_level, match, rationale)
+        merged = diagnosis.apply_legacy_level(stored, legacy_level, match)
         summary = f"이전 형식(level만) 기록: 수준 {stored.get('level')} -> {legacy_level}"
         response = {"ok": True, "recorded": True, "legacy": True}
     else:
         raise HTTPException(
             400,
-            "messages 형식을 읽지 못했습니다. 예: 1:2:2-정성-단수-부분,2-정성-단수-부분;2:1:3-정량-단수-전체;3:1:OOS-감각",
+            "messages 형식을 읽지 못했습니다. 예: 1:2:match:2-정성-단수-부분;2:1:mismatch:0",
         )
 
     merged["judgeStatus"] = "done"
@@ -737,19 +764,16 @@ def tool_observation_assessment(
     studentId: str = Query(...),
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """관찰력 평가 데이터 조회. 평가 기준과 이 학생의 탭 1 진단 결과를 돌려준다."""
+    """관찰력 평가 데이터 조회. 이 학생의 탭 1 진단에서 관찰 유형을 돌려준다."""
     require_tool_key(x_tool_key)
     student_id = tool_student(studentId)
 
-    rubric = diagnosis.load_knowledge("observation_rubric")
     record = db.get_diagnosis(student_id, "assess")
     result = (record or {}).get("payload")
 
     summary = None
     if result:
         summary = {
-            "level": result.get("level"),
-            "levelLabel": result.get("levelLabel"),
             "oqA": result.get("oqA"),
             "diversityD": result.get("D"),
             "typesUsed": result.get("typesUsed"),
@@ -759,14 +783,13 @@ def tool_observation_assessment(
             "quantitativeMessageCount": result.get("quantitativeMessageCount"),
             "method": result.get("method"),
             "photoMatchRate": (result.get("judge") or {}).get("photoMatchRate"),
-            "rationale": (result.get("judge") or {}).get("rationale"),
         }
 
     db.log_tool_call(
         student_id=student_id,
         tool_name="observation_assessment",
         result_summary=(
-            f"level={summary['level']}, oqA={summary['oqA']}, D={summary['diversityD']}"
+            f"oqA={summary['oqA']}, D={summary['diversityD']}"
             if summary
             else "진단 없음"
         ),
@@ -776,9 +799,8 @@ def tool_observation_assessment(
         "found": summary is not None,
         "criteria": {
             "observationTypes": diagnosis.all_type_ids(),
-            "levels": rubric["levelThresholds"]["levels"],
         },
-        "howToUse": "이 학생의 관찰력 수준과 아직 쓰지 않은 관찰 유형을 파악하는 데만 쓰세요. 학생에게 점수를 말하지 마세요.",
+        "howToUse": "이 학생이 사용한 관찰 유형과 아직 쓰지 않은 유형을 파악하는 데만 쓰세요. 학생에게 점수를 말하지 마세요.",
     }
 
 @app.get("/api/tools/offloading-diagnosis")
@@ -989,7 +1011,7 @@ def admin_diagnoses(
     key: Optional[str] = None,
     x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
 ):
-    """모드별 진단 결과(관찰력 수준, 오프로딩 단계 등) 원본."""
+    """모드별 진단 결과(OQ_A, 다양도, 오프로딩 단계 등) 원본."""
     require_admin_key(key, x_admin_key)
     rows = db.get_all_diagnoses()
     if studentId:
