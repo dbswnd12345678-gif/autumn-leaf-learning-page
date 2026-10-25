@@ -93,6 +93,8 @@ _OBSERVATION_EXTRA_COLUMNS = {
     "support_level": "INTEGER",
     "tools_called": "TEXT",
     "tool_skipped": "INTEGER",
+    # 탭 3에서 Agent가 기록한 관찰 유형 id 목록(JSON 배열). 없으면 아직 기록하지 않은 턴이다.
+    "observation_types": "TEXT",
 }
 
 
@@ -172,6 +174,7 @@ def add_observation(
     support_level: Optional[int] = None,
     tools_called: Optional[str] = None,
     tool_skipped: Optional[bool] = None,
+    observation_types: Optional[str] = None,
 ) -> int:
     conn = get_connection()
     try:
@@ -182,8 +185,9 @@ def add_observation(
                 student_id, session_id, turn_index, timestamp, images,
                 comparison_mode, question, answer, objectivity_score,
                 term_count, variety_count, spatial_scope, pedagogy_rule_id, ai_stage,
-                mode, input_kind, support_level, tools_called, tool_skipped
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                mode, input_kind, support_level, tools_called, tool_skipped,
+                observation_types
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 student_id,
@@ -205,6 +209,7 @@ def add_observation(
                 support_level,
                 tools_called,
                 None if tool_skipped is None else (1 if tool_skipped else 0),
+                observation_types,
             ),
         )
         conn.commit()
@@ -220,6 +225,15 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     except (json.JSONDecodeError, TypeError):
         d["images"] = []
     d["comparison_mode"] = bool(d.get("comparison_mode"))
+    raw_types = d.get("observation_types")
+    if not raw_types:
+        d["observation_types"] = None
+    else:
+        try:
+            parsed_types = json.loads(raw_types)
+            d["observation_types"] = parsed_types if isinstance(parsed_types, list) else None
+        except (json.JSONDecodeError, TypeError):
+            d["observation_types"] = None
     return d
 
 

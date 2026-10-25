@@ -2,7 +2,7 @@
 
 모든 Flow는 "API Call" 블록 하나로 만들고, 공통 설정은 같습니다.
 
-- Method: GET
+- 조회 Flow의 Method는 GET, 기록 Flow의 Method는 POST
 - Header: `X-Tool-Key` = Railway의 `TOOL_API_KEY` 값
 - Base URL: `https://<학습 페이지 주소>` (로컬 점검 시 AnythingLLM이 닿을 수 있는 주소)
 - Flow 입력 변수: `studentId` (메시지 태그 `[studentId: ...]`의 값)
@@ -10,19 +10,21 @@
 
 | Flow 이름 | URL | 주 사용 모드 | 하는 일 |
 |---|---|---|---|
-| 관찰력 평가 데이터 조회 | `/api/tools/observation-assessment?studentId={studentId}` | 3 (선택), 연구 확인 | 이 학생의 탭 1 진단 결과(OQ_A, 다양도 D, 사용한 관찰 유형, 아직 쓰지 않은 관찰 유형) |
-| 오프로딩 단계 진단 조회 | `/api/tools/offloading-diagnosis?studentId={studentId}` | 3 (선택), 연구 확인 | 단계 정의와 이 학생의 탭 2 진단 결과(요청 유형, 반영 비율) |
-| 오프로딩 단계별 지원방법 조회 | `/api/tools/support-methods?studentId={studentId}` | 3 (매 턴) | 관찰 진단(무엇을 물을지)과 오프로딩 단계(어떻게 말할지)를 각각 돌려줌. 둘을 하나의 지원 수준으로 합치지 않음 |
-| 단풍잎 관찰 시 관찰 유형 및 방법 지원 | `/api/tools/observation-methods?studentId={studentId}` | 3 (문장 입력 시) | 학생이 아직 쓰지 않은 관찰 유형(측정 x 비교 x 범위 8가지 중) 최대 3개와 방법, 질문, 문장 틀. 방금 쓴 문장이 시각 이외 감각이나 시간 흐름이면 바꾸어 쓰는 안내(outOfScopeGuidance)도 함께 |
+| 관찰·오프로딩 진단 기록 조회 | `/api/tools/diagnosis-records?studentId={studentId}` | 3 (매 턴, 가장 먼저) | 탭 1의 관찰 수준 평균·객관도 평균, 탭 2 오프로딩 진단(단계, 요청 유형), 탭 3에 이미 기록된 관찰 문장과 유형을 한 번에 읽음. typesUsed는 탭 1과 탭 3의 합. 문장 원문은 포함하지 않음 |
+| 탭 3 관찰 유형 기록 | POST `/api/tools/support-sentence-type` | 3 (관찰 문장 턴) | 방금 쓴 관찰 문장의 유형을 받아, 그 턴의 observations 행에 저장. 본문 `{"studentId","types"}`. types는 쉼표로 이은 유형 id. 관찰이 아니면 비움. 탭 1 진단 행은 바꾸지 않음 |
+| 관찰력 평가 데이터 조회 | `/api/tools/observation-assessment?studentId={studentId}` | 연구 확인 | 이 학생의 탭 1 진단 결과(OQ_A, 다양도 D, 사용한 관찰 유형, 아직 쓰지 않은 관찰 유형). 탭 3 답변은 진단 기록 조회를 씀 |
+| 오프로딩 단계 진단 조회 | `/api/tools/offloading-diagnosis?studentId={studentId}` | 연구 확인 | 단계 정의와 이 학생의 탭 2 진단 결과(요청 유형, 반영 비율). 탭 3 답변은 진단 기록 조회를 씀 |
+| 오프로딩 단계별 지원방법 조회 | `/api/tools/support-methods?studentId={studentId}` | 3 (진단 기록 다음) | 말하는 방식(methods, dontDo)과 원칙. 관찰 수준·객관도·요청 유형은 진단 기록 조회를 우선 |
+| 단풍잎 관찰 시 관찰 유형 및 방법 지원 | `/api/tools/observation-methods?studentId={studentId}` | 연구 확인 | 아직 쓰지 않은 관찰 유형 최대 3개. 탭 3 절차에서는 진단 기록 조회가 유형을 이미 돌려주므로 부르지 않음 |
 | 개인별 대화 로그 조회 | `/api/tools/dialogue-log?studentId={studentId}&mode=support&limit=10` | 3 (필요 시) | 최근 대화. 기록은 서버가 항상 저장하고 Agent는 읽기만 함 |
 
 ## 역할 정리
 - 탭 1(관찰력 진단)은 최종 제출 때 채점용 Agent가 문장을 분류하고, 서버가 OQ_A를 계산해 `diagnoses` 표에 저장합니다. 탭 2(오프로딩 진단)는 최종 제출 때 서버가 키워드로 먼저 집계한 뒤 채점용 워크스페이스에 판정을 요청해 같은 표에 저장합니다. 두 탭 모두 대화 중 실시간 Agent는 없습니다.
-- 위 Flow 중 진단 조회 2개는 저장된 진단을 읽는 용도라서, 탭 3 Agent가 필요할 때 쓰거나 연구자가 점검할 때 씁니다.
+- 탭 3은 메시지를 보내기 전에 진단을 읽지 않습니다. Agent가 매 턴 먼저 "관찰·오프로딩 진단 기록 조회"를 부르고, 이어서 지원방법 조회로 말하는 방식을 정합니다. 학생이 관찰 문장을 쓴 턴에는 답을 쓰기 전에 "탭 3 관찰 유형 기록"을 부릅니다. 그 유형은 다음 턴의 진단 기록 조회에 포함됩니다. 예전 진단 조회 2개는 연구 확인용으로 남아 있고, 탭 3 절차에서는 부르지 않습니다.
 - 대화 로그 "기록"은 Flow가 아니라 서버(`/api/chat`)가 항상 저장합니다. Agent가 호출을 빼먹어도 기록은 남습니다.
 
 ## 호출 준수 확인
-- 서버는 탭 3의 각 턴에서 `support_methods` 또는 `observation_methods` 호출이 없으면 `tool_calls`에 `tool_skipped`를 남기고, 관찰 기록 행에 `tool_skipped=1`을 적습니다.
+- 서버는 탭 3의 각 턴에서 `diagnosis_records` 호출이 없거나, 관찰 문장 턴에서 `support_sentence_type` 호출이 없으면 `tool_calls`에 `tool_skipped`를 남기고, 관찰 기록 행에 `tool_skipped=1`을 적습니다.
 - 연구자 확인: `GET /api/admin/tool-calls?key=ADMIN_KEY`, 엑셀 내보내기의 `Tool호출이력`, `진단결과` 시트(도구 누락 턴 수).
 
 ## Railway 환경변수 (학습 페이지 서비스)

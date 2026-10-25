@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import os
 import re
 import sys
@@ -355,25 +356,10 @@ def student_levels(student_id: str) -> tuple[None, Optional[int]]:
     return None, off_stage
 
 
-def build_support_message(
-    student_id: str,
-    student_message: str,
-    input_kind: str,
-    off_stage: Optional[int],
-    observation: dict[str, Any],
-) -> str:
+def build_support_message(student_id: str, student_message: str, input_kind: str) -> str:
     # AnythingLLM은 메시지 앞에 "@agent"가 있어야 도구(Agent Flow)를 호출한다.
-    # 관찰 진단과 오프로딩 단계는 숫자로 합치지 않고 각각 적는다.
-    stage = off_stage if off_stage in (1, 2, 3, 4) else "없음"
-    tried = ", ".join(observation.get("typesUsed") or []) or "없음"
-    if observation.get("nextType"):
-        nxt = f"[nextType: {observation['nextType']}] [question: {observation.get('question') or ''}]"
-    else:
-        nxt = "[nextType: 없음]"
-    tag = (
-        f"[studentId: {student_id}] [offloadingStage: {stage}] "
-        f"[input: {input_kind}] [tried: {tried}] {nxt}"
-    )
+    # 진단 내용은 붙이지 않는다. Agent가 진단 기록 조회 Flow로 SQLite에서 읽는다.
+    tag = f"[studentId: {student_id}] [input: {input_kind}]"
     return f"@agent {tag}\n\n{student_message}"
 
 
@@ -434,12 +420,7 @@ async def chat(req: ChatRequest):
     support_level: Optional[int] = None
     last_tool_id = 0
     if mode == "support":
-        _obs_level, off_stage = student_levels(student_id)
-        assess_payload = (db.get_diagnosis(student_id, "assess") or {}).get("payload", {})
-        observation = diagnosis.observation_support_state(assess_payload)
-        agent_message = build_support_message(
-            student_id, message, input_kind, off_stage, observation
-        )
+        agent_message = build_support_message(student_id, message, input_kind)
         last_tool_id = db.get_max_tool_call_id(student_id)
     else:
         # 탭 2는 @agent 없이 학생의 말을 보낸다. 사진이 두 장이면 왼쪽·오른쪽 번호만 앞에 붙인다.
@@ -452,18 +433,32 @@ async def chat(req: ChatRequest):
 
     tools_called: Optional[str] = None
     tool_skipped: Optional[bool] = None
+    observation_types: Optional[str] = None
     if mode == "support":
-        # Agent가 이번 턴에 지원 방법 조회를 실제로 불렀는지 확인한다.
+        # 이번 턴에 진단 기록 조회와, 관찰 문장이면 유형 기록을 불렀는지 확인한다.
+        # 유형 기록은 답변보다 먼저 실행되므로, 그 값을 지금 만드는 관찰 행에 붙인다.
         new_calls = db.get_tool_calls_after(student_id, last_tool_id)
         names = [c["tool_name"] for c in new_calls]
         tools_called = ",".join(names)
-        tool_skipped = not any(n in ("support_methods", "observation_methods") for n in names)
+        recorded = [
+            diagnosis.loads_recorded_types(c.get("result_summary"))
+            for c in new_calls
+            if c.get("tool_name") == "support_sentence_type"
+        ]
+        if recorded:
+            observation_types = json.dumps(recorded[-1], ensure_ascii=False)
+        missing = []
+        if "diagnosis_records" not in names:
+            missing.append("diagnosis_records")
+        if input_kind == "sentence" and "support_sentence_type" not in names:
+            missing.append("support_sentence_type")
+        tool_skipped = bool(missing)
         if tool_skipped:
             db.log_tool_call(
                 student_id=student_id,
                 tool_name="tool_skipped",
                 input_text=message,
-                result_summary=f"offloadingStage={off_stage}, input={input_kind}",
+                result_summary=f"input={input_kind}, missing={','.join(missing)}",
             )
 
     db.add_observation(
@@ -484,6 +479,7 @@ async def chat(req: ChatRequest):
         support_level=support_level,
         tools_called=tools_called,
         tool_skipped=tool_skipped,
+        observation_types=observation_types,
     )
 
     return {"answer": answer, "remainingSeconds": remaining_seconds(session)}
@@ -844,6 +840,58 @@ def tool_offloading_diagnosis(
     }
 
 
+@app.get("/api/tools/diagnosis-records")
+def tool_diagnosis_records(
+    studentId: str = Query(...),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """탭 1 관찰 진단, 탭 2 오프로딩 진단, 탭 3에 이미 기록된 관찰 유형을 함께 돌려준다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+    assess_payload = (db.get_diagnosis(student_id, "assess") or {}).get("payload")
+    offload_payload = (db.get_diagnosis(student_id, "offload") or {}).get("payload")
+    support_rows = db.get_mode_observations(student_id, "support")
+    records = diagnosis.diagnosis_records(assess_payload, offload_payload, support_rows)
+    observation = records["observation"]
+    offloading = records["offloading"]
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="diagnosis_records",
+        result_summary=(
+            f"leMean={observation.get('leMean')}, doMean={observation.get('doMean')}, "
+            f"offloadingStage={offloading.get('stage')}, "
+            f"supportTypes={','.join(records['supportHistory']['typesUsed']) or '없음'}"
+        ),
+    )
+    return records
+
+
+class SupportSentenceType(BaseModel):
+    """탭 3 관찰 문장의 유형. Flow는 문자열로 보낼 수 있다."""
+
+    studentId: str
+    types: Any = ""
+
+
+@app.post("/api/tools/support-sentence-type")
+def tool_support_sentence_type(
+    body: SupportSentenceType,
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """탭 3에서 방금 쓴 관찰 문장의 유형을 받는다. 관찰 행은 답변이 끝난 뒤 서버가 만든다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(body.studentId)
+    types = diagnosis.parse_support_observation_types(body.types)
+    stored = json.dumps(types, ensure_ascii=False)
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="support_sentence_type",
+        input_text=str(body.types)[:300],
+        result_summary=stored,
+    )
+    return {"ok": True, "recorded": True, "types": types}
+
+
 @app.get("/api/tools/support-methods")
 def tool_support_methods(
     studentId: str = Query(...),
@@ -872,9 +920,8 @@ def tool_support_methods(
         "offloading": offloading,
         "principles": support["principles"],
         "howToUse": (
-            "관찰 규칙으로 무엇을 물을지 하나만 정하세요. 방금 문장이 관찰이 아니거나 막연하면 "
-            "nextType 대신 not_observation 또는 vague 규칙을 쓰세요. "
-            "오프로딩 단계의 methods로 그 질문을 어떻게 말할지 정하세요. "
+            "말하는 방식만 여기서 정하세요. offloading.methods 하나와 dontDo를 쓰세요. "
+            "학생이 이미 한 관찰의 수준, 객관도, 유형과 오프로딩 요청 유형은 진단 기록 조회를 따르세요. "
             "두 축을 하나의 수준으로 합치지 말고, 학생에게 단계 숫자를 말하지 마세요."
         ),
     }

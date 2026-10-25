@@ -29,6 +29,7 @@ HEADERS = [
     "AI 단계",
     "모드",
     "입력 종류",
+    "관찰 유형",
     "지원 수준",
     "호출한 도구",
     "도구 누락",
@@ -61,6 +62,7 @@ def _row_values(row: dict[str, Any]) -> list[Any]:
         row.get("ai_stage"),
         MODE_LABELS.get(row.get("mode"), row.get("mode")),
         row.get("input_kind"),
+        ", ".join(row.get("observation_types") or []) if isinstance(row.get("observation_types"), list) else "",
         row.get("support_level"),
         row.get("tools_called"),
         ("예" if row.get("tool_skipped") else "") if row.get("tool_skipped") is not None else "",
@@ -118,6 +120,8 @@ TOOL_NAME_LABELS = {
     "history_lookup": "학생 관찰 이력 조회",
     "observation_assessment": "관찰력 평가 데이터 조회",
     "offloading_diagnosis": "오프로딩 단계 진단 조회",
+    "diagnosis_records": "관찰·오프로딩 진단 기록 조회",
+    "support_sentence_type": "탭 3 관찰 유형 기록",
     "support_methods": "오프로딩 단계별 지원방법 조회",
     "observation_methods": "관찰 유형 및 방법 조회",
     "dialogue_log": "개인별 대화 로그 조회",
@@ -155,6 +159,7 @@ DIAGNOSIS_HEADERS = [
     "AI 요청 수", "관찰 대행 비율", "AI 반영 비율", "사진 일치율", "판정 출처", "LLM 판정 상태",
     "LLM 판정 근거", "도구 누락 턴 수", "지원 수준",
     "사진 일치 문장 수", "사진 불일치 문장 수", "사진 알 수 없음 문장 수",
+    "관찰 수준 평균", "관찰 수준 평균 문장 수", "객관도 평균", "객관도 평균 단위 수",
 ]
 
 
@@ -192,6 +197,10 @@ def _add_diagnoses_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
                 (judge.get("photoMatchCounts") or {}).get("match"),
                 (judge.get("photoMatchCounts") or {}).get("mismatch"),
                 (judge.get("photoMatchCounts") or {}).get("unknown"),
+                p.get("leMean"),
+                p.get("leMeanSentenceCount"),
+                p.get("doMean"),
+                p.get("doMeanUnitCount"),
             ]
         )
     for row in ws.iter_rows(min_row=2):

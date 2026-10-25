@@ -255,6 +255,10 @@ def compute_observation_index(messages: list[dict[str, Any]]) -> dict[str, Any]:
     total = 0
     flag_counts: dict[str, int] = {}
     quantitative_messages = 0
+    le_total = 0
+    le_count = 0
+    do_total = 0
+    do_count = 0
     for m in messages:
         row = dict(m)
         if m.get("source") != "agent":
@@ -267,6 +271,15 @@ def compute_observation_index(messages: list[dict[str, Any]]) -> dict[str, Any]:
         le = m.get("le") if isinstance(m.get("le"), int) else None
         contribution = (le * sum_do) if le is not None else 0
         total += contribution
+        counted_units = [u for u in in_scope if (u.get("do") or 0) > 0]
+        # 사진 불일치 문장과 객관도 0, 범위 밖 단위는 평균에 넣지 않는다.
+        if m.get("photoMatch") != "mismatch" and counted_units:
+            for unit in counted_units:
+                do_total += int(unit.get("do") or 0)
+                do_count += 1
+            if le is not None:
+                le_total += le
+                le_count += 1
         for u in in_scope:
             if (u.get("do") or 0) > 0:
                 types_used.add(type_id(u["measurement"], u["comparison"], u["scope"]))
@@ -288,6 +301,10 @@ def compute_observation_index(messages: list[dict[str, Any]]) -> dict[str, Any]:
         "typesUsed": ordered,
         "typesMissing": [t for t in all_type_ids() if t not in types_used],
         "oqA": oq,
+        "leMean": round(le_total / le_count, 1) if le_count else None,
+        "leMeanSentenceCount": le_count,
+        "doMean": round(do_total / do_count, 1) if do_count else None,
+        "doMeanUnitCount": do_count,
         "outOfScopeCounts": flag_counts,
         "outOfScopeMessageCount": sum(1 for m in computed if m["outOfScope"]),
         "quantitativeMessageCount": quantitative_messages,
@@ -349,6 +366,10 @@ def unclassified_observation(
         "quantitySentenceCount": None,
         "score": None,
         "contributionSum": None,
+        "leMean": None,
+        "leMeanSentenceCount": 0,
+        "doMean": None,
+        "doMeanUnitCount": 0,
         "judge": None,
         "outOfScopeCounts": {},
         "outOfScopeMessageCount": 0,
@@ -606,6 +627,151 @@ def offloading_support(stage: Optional[int]) -> Optional[dict[str, Any]]:
         (s for s in load_knowledge("support_methods")["byOffloadingStage"] if s["stage"] == stage),
         None,
     )
+
+
+def _request_type_labels() -> dict[str, str]:
+    labels = {item["id"]: item["label"] for item in load_knowledge("offloading_stages")["requestTypes"]}
+    labels["other"] = "기타"
+    return labels
+
+
+def parse_support_observation_types(raw: Any) -> list[str]:
+    """탭 3 기록 Flow가 보낸 유형 문자열을 8가지 id만 남겨 정해진 순서로 돌려준다."""
+    known = all_type_ids()
+    text = str(raw or "").strip()
+    if not text or text.lower() in {"없음", "none", "null", "not_observation"}:
+        return []
+    found: list[str] = []
+    for part in re.split(r"[,，;；/\n]+", text):
+        token = part.strip().strip("\"'` ")
+        if token in known and token not in found:
+            found.append(token)
+    if not found:
+        for type_name in known:
+            if type_name in text:
+                found.append(type_name)
+    return [type_name for type_name in known if type_name in found]
+
+
+def loads_recorded_types(summary: Optional[str]) -> list[str]:
+    """도구 호출 요약에 저장해 둔 유형 목록을 읽는다."""
+    text = summary or ""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return parse_support_observation_types(text)
+    if isinstance(data, list):
+        return parse_support_observation_types(",".join(str(item) for item in data))
+    return parse_support_observation_types(text)
+
+
+def support_sentence_history(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """탭 3 관찰 문장과 그 턴에 기록된 유형. 유형 합계는 문장 목록을 자르기 전에 센다."""
+    known = all_type_ids()
+    sentences = []
+    used: set[str] = set()
+    for row in rows:
+        if row.get("mode") != "support":
+            continue
+        types = row.get("observation_types")
+        if isinstance(types, str):
+            types = loads_recorded_types(types)
+        is_sentence = row.get("input_kind") == "sentence"
+        recorded = isinstance(types, list)
+        if not is_sentence and not recorded:
+            continue
+        clean = [type_name for type_name in types if type_name in known] if recorded else None
+        if clean:
+            used.update(clean)
+        sentences.append(
+            {
+                "text": str(row.get("question") or "")[:400],
+                "types": clean,
+            }
+        )
+    return {
+        "sentences": sentences[-30:],
+        "typesUsed": [type_name for type_name in known if type_name in used],
+    }
+
+
+def diagnosis_records(
+    assess_payload: Optional[dict[str, Any]],
+    offload_payload: Optional[dict[str, Any]],
+    support_rows: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """탭 3 Agent가 답하기 전에 읽는 진단 기록.
+
+    탭 1은 관찰 수준 평균과 객관도 평균, 탭 2는 오프로딩 단계와 요청 유형이다.
+    탭 3에서 이미 기록된 관찰 문장과 유형도 함께 돌려준다. 서버가 다음 질문을 골라 넣지 않는다.
+    """
+    assess = assess_payload or {}
+    observation_found = bool(assess_payload)
+    classified = assess.get("method") in ("agent", "partial")
+    used = list(assess.get("typesUsed") or []) if classified else []
+    observation = {
+        "found": observation_found,
+        "classified": classified,
+        "leMean": assess.get("leMean") if classified else None,
+        "leMeanSentenceCount": assess.get("leMeanSentenceCount") or 0 if classified else 0,
+        "doMean": assess.get("doMean") if classified else None,
+        "doMeanUnitCount": assess.get("doMeanUnitCount") or 0 if classified else 0,
+    }
+
+    offload = offload_payload or {}
+    labels = _request_type_labels()
+    stages = load_knowledge("offloading_stages")["stages"]
+    stage = offload.get("stage") if offload.get("stage") in (1, 2, 3, 4) else None
+    stage_info = next((item for item in stages if item["stage"] == stage), None)
+    counts = offload.get("requestTypeCounts") or {}
+    requests = []
+    for item in (offload.get("requests") or [])[:20]:
+        if not isinstance(item, dict):
+            continue
+        type_id_value = item.get("type") or "other"
+        requests.append(
+            {
+                "type": type_id_value,
+                "label": labels.get(type_id_value, type_id_value),
+                "question": str(item.get("question") or "")[:180],
+            }
+        )
+    offloading = {
+        "found": bool(offload_payload),
+        "stage": stage,
+        "stageLabel": (stage_info or {}).get("label") or offload.get("stageLabel"),
+        "stageMeaning": (stage_info or {}).get("meaning"),
+        "requestTypeCounts": [
+            {"id": type_id_value, "label": labels.get(type_id_value, type_id_value), "count": count}
+            for type_id_value, count in counts.items()
+        ],
+        "delegateShare": offload.get("delegateShare"),
+        "reuseRatio": offload.get("reuseRatio"),
+        "requests": requests,
+    }
+    history = support_sentence_history(support_rows or [])
+    known = all_type_ids()
+    combined = [type_name for type_name in known if type_name in set(used) or type_name in history["typesUsed"]]
+    has_history = classified or bool(history["typesUsed"])
+    return {
+        "observation": observation,
+        "offloading": offloading,
+        "supportHistory": history,
+        "typesUsed": combined,
+        "typesMissing": [type_name for type_name in known if type_name not in set(combined)] if has_history else [],
+        "observationTypeIds": known,
+        "howToUse": (
+            "observation.leMean은 탭 1에서 관찰로 인정된 문장의 관찰 수준 평균이고, "
+            "doMean은 그 정보 단위의 객관도 평균입니다. 문장 원문은 없습니다. "
+            "평균이 비어 있으면 점수가 낮은 것이 아니라, 평균에 넣을 관찰이 없는 것입니다. "
+            "offloading은 탭 2 진단입니다. 말하는 방식은 지원방법 조회의 methods와 dontDo를 쓰세요. "
+            "supportHistory는 탭 3에서 이미 기록된 관찰 문장과 유형입니다. 학생이 방금 쓴 문장은 아직 여기에 없습니다. "
+            "typesUsed와 typesMissing은 탭 1과 탭 3을 합친 유형입니다. 시도 여부는 이 목록만 보세요. "
+            "classified가 아니고 supportHistory.typesUsed도 비어 있으면 유형을 지어내지 마세요. "
+            "입력이 sentence이면 답을 쓰기 전에 탭 3 관찰 유형 기록 Flow로 방금 문장의 유형을 남기세요. "
+            "평균, 단계, 점수, 유형 이름은 학생에게 말하지 마세요."
+        ),
+    }
 
 
 def remaining_observation_types(used_types: list[str]) -> list[dict[str, Any]]:
