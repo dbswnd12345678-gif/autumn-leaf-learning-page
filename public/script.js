@@ -1,11 +1,12 @@
 // 3개 탭(모드): assess(관찰력 진단), offload(오프로딩 진단), support(AI Agent 지원)
-// 서버가 모드별 10분 세션과 사진을 정한다. 이 파일은 화면과 입력만 맡는다.
+// 서버가 모드별 세션과 사진을 정한다. 제한 시간은 SESSION_SECONDS가 0보다 클 때만 흐른다.
 const MODES = {
   assess: {
-    subtitle: "AI 없이 사진을 보고 관찰한 내용을 문장으로 적어 보세요. 10분 동안 여러 문장을 쓸 수 있어요.",
+    subtitle: "AI 없이 사진을 보고 관찰한 내용을 문장으로 적어 보세요. 여러 문장을 쓸 수 있어요.",
     hint: "※ 사진에서 보이는 것을 한 문장씩 적어 주세요. 다 쓰면 최종 제출을 누르세요.",
     startTitle: "탭 1 · 관찰하기",
-    startDesc: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 시작하면 10분이 흐르고, 시간이 끝나면 자동으로 제출돼요.",
+    startDesc: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 다 쓰면 최종 제출을 누르세요.",
+    startDescTimed: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 시작하면 제한 시간이 흐르고, 시간이 끝나면 자동으로 제출돼요.",
     chat: false,
     sentenceToAI: false,
     sentenceTip: "AI 없이 직접 관찰하세요.",
@@ -14,7 +15,8 @@ const MODES = {
     subtitle: "AI에게 자유롭게 질문하거나 요청하면서 관찰 과제를 해 보세요. 마지막에 내 관찰 문장을 제출합니다.",
     hint: "※ AI에게 무엇이든 물어봐도 돼요. 제출할 관찰 문장은 오른쪽 아래 입력란에 따로 적어 주세요.",
     startTitle: "탭 2 · AI와 관찰하기",
-    startDesc: "AI에게 자유롭게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요. 시작하면 10분이 흐릅니다.",
+    startDesc: "AI에게 자유롭게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요.",
+    startDescTimed: "AI에게 자유롭게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요. 시작하면 제한 시간이 흐릅니다.",
     chat: true,
     sentenceToAI: false,
     greeting: "안녕하세요! 단풍잎 관찰을 도와줄게요. 궁금한 것이나 부탁할 것을 자유롭게 말해 주세요.",
@@ -25,7 +27,8 @@ const MODES = {
     subtitle: "AI 도우미가 관찰하는 방법을 도와줍니다. 관찰 문장을 입력하면 도우미가 다음에 볼 것을 안내해요.",
     hint: "※ 관찰 문장을 추가하면 AI 도우미가 도움말을 줍니다. 궁금한 것은 위쪽 대화창에 물어보세요.",
     startTitle: "탭 3 · AI 도우미와 관찰하기",
-    startDesc: "AI 도우미와 함께 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 방법을 안내해요. 시작하면 10분이 흐릅니다.",
+    startDesc: "AI 도우미와 함께 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 방법을 안내해요.",
+    startDescTimed: "AI 도우미와 함께 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 방법을 안내해요. 시작하면 제한 시간이 흐릅니다.",
     chat: true,
     sentenceToAI: true,
     greeting: "안녕하세요! 저는 관찰 도우미예요. 사진을 보고 관찰한 문장을 아래에 입력해 보세요. 궁금한 점은 여기에 물어봐도 돼요.",
@@ -321,6 +324,12 @@ function syncTimer() {
 
 function tick() {
   const info = modeInfo(currentMode);
+  if (info && info.timed === false) {
+    timerEl.classList.remove("timer-low");
+    timerEl.classList.add("timer-idle");
+    timerEl.textContent = info.status === "submitted" ? "제출 완료" : "제한 없음";
+    return;
+  }
   if (info && info.status === "in_progress") {
     const left = remainingNow();
     if (left !== null) {
@@ -431,7 +440,7 @@ function applyMode() {
   startCard.hidden = showWork;
   workArea.hidden = !showWork;
   $("start-title").textContent = spec.startTitle;
-  $("start-desc").textContent = spec.startDesc;
+  $("start-desc").textContent = info?.timed === false ? spec.startDesc : spec.startDescTimed || spec.startDesc;
   startMsg.textContent = "";
   startBtn.disabled = false;
   if (!hasStudent) {
@@ -441,7 +450,10 @@ function applyMode() {
     startBtn.disabled = true;
     startMsg.textContent = "탭 1과 탭 2를 모두 마치면 열려요.";
   }
-  startBtn.textContent = `시작하기 (${Math.round((info?.durationSeconds || 600) / 60)}분)`;
+  startBtn.textContent =
+    info?.timed === false
+      ? "시작하기"
+      : `시작하기 (${Math.round((info?.durationSeconds || 600) / 60)}분)`;
 
   if (showWork) {
     renderChat();
@@ -593,8 +605,13 @@ chatForm.addEventListener("submit", async (e) => {
 // ---------------------------------------------------------------------------
 function elapsedSeconds() {
   const info = modeInfo(currentMode);
+  if (!info) return null;
+  if (info.timed === false && info.startedAt) {
+    const started = Date.parse(info.startedAt);
+    if (!Number.isNaN(started)) return Math.max(0, Math.round((Date.now() - started) / 1000));
+  }
   const left = remainingNow();
-  if (!info || left === null) return null;
+  if (left === null) return null;
   return Math.round(info.durationSeconds - left);
 }
 

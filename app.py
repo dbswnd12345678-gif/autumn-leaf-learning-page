@@ -63,8 +63,11 @@ ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 TOOL_API_KEY = os.environ.get("TOOL_API_KEY", "")
 PORT = int(os.environ.get("PORT", "3000"))
 
-# 한 모드의 제한 시간(초). 시연이나 점검 때는 SESSION_SECONDS=60처럼 줄여서 쓴다.
-SESSION_SECONDS = int(os.environ.get("SESSION_SECONDS", "600"))
+# 한 모드의 제한 시간(초). 0이면 제한이 없고, 직접 제출할 때까지 이어진다.
+# 수업에서 10분을 쓰려면 SESSION_SECONDS=600.
+SESSION_SECONDS = int(os.environ.get("SESSION_SECONDS", "0"))
+# 제한을 끈 뒤에도 예전 화면이 남은 시간 0으로 보고 자동 제출하지 않게 남겨 두는 값.
+UNTIMED_REMAINING_SECONDS = 60 * 60 * 24 * 30
 # 마감 직후 도착한 요청도 받아 주는 여유(초).
 SESSION_GRACE_SECONDS = int(os.environ.get("SESSION_GRACE_SECONDS", "20"))
 # 1이면 탭 1·2 진단이 없어도 탭 3을 연다(개발·점검용).
@@ -251,8 +254,11 @@ async def call_anythingllm(
 
 
 # ---------------------------------------------------------------------------
-# 모드별 10분 세션
+# 모드별 세션. SESSION_SECONDS가 0이면 시간 제한과 자동 제출이 없다.
 # ---------------------------------------------------------------------------
+
+def timer_enabled() -> bool:
+    return SESSION_SECONDS > 0
 
 def is_support_unlocked(student_id: str) -> bool:
     """탭 3은 탭 1(관찰력)과 탭 2(오프로딩) 진단이 모두 있어야 열린다."""
@@ -268,25 +274,31 @@ def remaining_seconds(session: dict[str, Any]) -> int:
 def mode_status(student_id: str, mode: str) -> dict[str, Any]:
     session = db.get_session(student_id, mode)
     status = "not_started"
-    remaining = SESSION_SECONDS
+    remaining = SESSION_SECONDS if timer_enabled() else UNTIMED_REMAINING_SECONDS
     submitted = False
+    started_at = None
     if mode == "support" and not session and not is_support_unlocked(student_id):
         status = "locked"
     if session:
         submitted = bool(session.get("submitted_at"))
-        remaining = remaining_seconds(session)
+        started_at = session.get("started_at")
         if submitted:
             status = "submitted"
-        elif remaining <= 0:
-            status = "expired"
-        else:
+            remaining = 0
+        elif not timer_enabled():
             status = "in_progress"
+            remaining = UNTIMED_REMAINING_SECONDS
+        else:
+            remaining = remaining_seconds(session)
+            status = "expired" if remaining <= 0 else "in_progress"
     return {
         "mode": mode,
         "label": MODE_LABELS[mode],
         "status": status,
+        "timed": timer_enabled(),
         "remainingSeconds": remaining,
-        "durationSeconds": SESSION_SECONDS,
+        "durationSeconds": SESSION_SECONDS if timer_enabled() else 0,
+        "startedAt": started_at,
         "submitted": submitted,
         "images": MODE_IMAGES[mode],
     }
@@ -298,7 +310,7 @@ def require_active_session(student_id: str, mode: str) -> dict[str, Any]:
         raise HTTPException(403, "먼저 시작 버튼을 눌러 주세요.")
     if session.get("submitted_at"):
         raise HTTPException(403, "이미 제출했습니다.")
-    if (utc_now() - parse_iso(session["deadline_at"])).total_seconds() > SESSION_GRACE_SECONDS:
+    if timer_enabled() and (utc_now() - parse_iso(session["deadline_at"])).total_seconds() > SESSION_GRACE_SECONDS:
         raise HTTPException(403, "제한 시간이 끝났습니다. 관찰 문장을 제출해 주세요.")
     return session
 
@@ -316,7 +328,8 @@ def session_status(studentId: str = Query(...)):
         raise HTTPException(400, "studentId가 필요합니다.")
     return {
         "studentId": student_id,
-        "durationSeconds": SESSION_SECONDS,
+        "durationSeconds": SESSION_SECONDS if timer_enabled() else 0,
+        "timed": timer_enabled(),
         "modes": {mode: mode_status(student_id, mode) for mode in MODES},
     }
 
@@ -339,7 +352,7 @@ def session_start(req: SessionStartRequest):
         student_id,
         mode,
         started_at=now.isoformat(),
-        deadline_at=(now + timedelta(seconds=SESSION_SECONDS)).isoformat(),
+        deadline_at=(now + timedelta(seconds=SESSION_SECONDS if timer_enabled() else UNTIMED_REMAINING_SECONDS)).isoformat(),
         images=MODE_IMAGES[mode],
     )
     return mode_status(student_id, mode)

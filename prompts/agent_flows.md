@@ -30,7 +30,7 @@
 ## Railway 환경변수 (학습 페이지 서비스)
 - `WS_SLUG_ASSESS`, `WS_SLUG_OFFLOAD`, `WS_SLUG_SUPPORT`: 워크스페이스 slug
 - `WS_SLUG_JUDGE`: 선택. 비우면 `WS_SLUG_ASSESS`로 채점 요청
-- `SESSION_SECONDS`: 선택. 기본 600
+- `SESSION_SECONDS`: 선택. 0이면 제한 시간 없음(기본). 수업 10분은 600
 - `UNLOCK_ALL=1`: 선택. 점검용. 탭 3 잠금을 풉니다(수업 때는 설정하지 않음)
 
 ## 워크스페이스 1 (관찰력 진단) Flow 2개
