@@ -619,6 +619,68 @@ def observation_support_state(assess_payload: Optional[dict[str, Any]]) -> dict[
     }
 
 
+def _public_scaffold(stage: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """지원 Agent에게 보여줄 단계. 구간 숫자는 빼고 올릴 방법만 남긴다."""
+    if not stage:
+        return None
+    return {
+        "stage": stage.get("stage"),
+        "label": stage.get("label"),
+        "meaning": stage.get("meaning"),
+        "scaffoldTo": stage.get("scaffoldTo"),
+        "methods": stage.get("methods") or [],
+        "dontDo": stage.get("dontDo") or [],
+    }
+
+
+def _mean_stage(stages: list[dict[str, Any]], mean: Any) -> Optional[dict[str, Any]]:
+    """평균이 속한 단계. 평균이 없으면 whenMeanMissing인 단계만 고른다."""
+    if mean is None:
+        return next((stage for stage in stages if stage.get("whenMeanMissing")), None)
+    try:
+        value = float(mean)
+    except (TypeError, ValueError):
+        return next((stage for stage in stages if stage.get("whenMeanMissing")), None)
+    for stage in stages:
+        if "min" not in stage:
+            continue
+        high = stage.get("max")
+        if value >= stage["min"] and (high is None or value < high):
+            return stage
+    return None
+
+
+def quality_scaffold(assess_payload: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """관찰 수준 평균과 객관도 평균에서 이번 답에 쓸 스캐폴딩을 고른다.
+
+    분류 전이거나 평균 칸이 없는 예전 기록이면 단계를 만들지 않는다.
+    객관도가 0 또는 1이면 객관도를, 2 또는 3이면 관찰 수준을 한 단계만 올린다.
+    """
+    payload = assess_payload or {}
+    empty = {"focus": None, "level": None, "objectivity": None}
+    if payload.get("method") not in ("agent", "partial"):
+        return empty
+    if "leMean" not in payload and "doMean" not in payload:
+        return empty
+    support = load_knowledge("support_methods")
+    level = _mean_stage(support["byObservationLevel"]["stages"], payload.get("leMean"))
+    objectivity = _mean_stage(support["byObjectivity"]["stages"], payload.get("doMean"))
+    if objectivity and objectivity.get("stage") in (0, 1):
+        focus = "objectivity"
+    elif level:
+        focus = "level"
+    elif objectivity:
+        focus = "objectivity"
+    else:
+        focus = None
+    return {
+        "focus": focus,
+        "priority": support.get("qualityPriority"),
+        "level": _public_scaffold(level),
+        "objectivity": _public_scaffold(objectivity),
+    }
+
+
 def offloading_support(stage: Optional[int]) -> Optional[dict[str, Any]]:
     """오프로딩 단계의 말하는 방식만 돌려준다. 단계가 없으면 None."""
     if stage not in (1, 2, 3, 4):

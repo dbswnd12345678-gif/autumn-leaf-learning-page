@@ -904,6 +904,7 @@ def tool_support_methods(
     _obs_level, off_stage = student_levels(student_id)
     assess_payload = (db.get_diagnosis(student_id, "assess") or {}).get("payload", {})
     observation = diagnosis.observation_support_state(assess_payload)
+    quality = diagnosis.quality_scaffold(assess_payload)
     offloading = diagnosis.offloading_support(off_stage)
     support = diagnosis.load_knowledge("support_methods")
 
@@ -912,17 +913,20 @@ def tool_support_methods(
         tool_name="support_methods",
         result_summary=(
             f"observation={observation['rule']['id']}, nextType={observation.get('nextType')}, "
-            f"offloadingStage={off_stage}"
+            f"quality={quality.get('focus')}, offloadingStage={off_stage}"
         ),
     )
     return {
         "observation": observation,
+        "quality": quality,
         "offloading": offloading,
         "principles": support["principles"],
         "howToUse": (
-            "말하는 방식만 여기서 정하세요. offloading.methods 하나와 dontDo를 쓰세요. "
-            "학생이 이미 한 관찰의 수준, 객관도, 유형과 오프로딩 요청 유형은 진단 기록 조회를 따르세요. "
-            "두 축을 하나의 수준으로 합치지 말고, 학생에게 단계 숫자를 말하지 마세요."
+            "quality.focus가 objectivity이면 quality.objectivity의 methods 하나만 쓰세요. "
+            "level이면 quality.level의 methods 하나만 쓰세요. 없는 축은 다루지 마세요. "
+            "바로 위 단계로 한 걸음만 올리고, 두 축을 한 답에 같이 올리지 마세요. "
+            "offloading.methods는 그 내용을 어떻게 말할지만 정합니다. "
+            "단계 숫자와 평균은 학생에게 말하지 마세요."
         ),
     }
 

@@ -14,7 +14,7 @@
 | 탭 3 관찰 유형 기록 | POST `/api/tools/support-sentence-type` | 3 (관찰 문장 턴) | 방금 쓴 관찰 문장의 유형을 받아, 그 턴의 observations 행에 저장. 본문 `{"studentId","types"}`. types는 쉼표로 이은 유형 id. 관찰이 아니면 비움. 탭 1 진단 행은 바꾸지 않음 |
 | 관찰력 평가 데이터 조회 | `/api/tools/observation-assessment?studentId={studentId}` | 연구 확인 | 이 학생의 탭 1 진단 결과(OQ_A, 다양도 D, 사용한 관찰 유형, 아직 쓰지 않은 관찰 유형). 탭 3 답변은 진단 기록 조회를 씀 |
 | 오프로딩 단계 진단 조회 | `/api/tools/offloading-diagnosis?studentId={studentId}` | 연구 확인 | 단계 정의와 이 학생의 탭 2 진단 결과(요청 유형, 반영 비율). 탭 3 답변은 진단 기록 조회를 씀 |
-| 오프로딩 단계별 지원방법 조회 | `/api/tools/support-methods?studentId={studentId}` | 3 (진단 기록 다음) | 말하는 방식(methods, dontDo)과 원칙. 관찰 수준·객관도·요청 유형은 진단 기록 조회를 우선 |
+| 오프로딩 단계별 지원방법 조회 | `/api/tools/support-methods?studentId={studentId}` | 3 (진단 기록 다음) | 관찰 수준·객관도를 바로 위 단계로 올리는 방법 하나와, 오프로딩 단계의 말하는 방식. 두 축을 하나의 수준으로 합치지 않음 |
 | 단풍잎 관찰 시 관찰 유형 및 방법 지원 | `/api/tools/observation-methods?studentId={studentId}` | 연구 확인 | 아직 쓰지 않은 관찰 유형 최대 3개. 탭 3 절차에서는 진단 기록 조회가 유형을 이미 돌려주므로 부르지 않음 |
 | 개인별 대화 로그 조회 | `/api/tools/dialogue-log?studentId={studentId}&mode=support&limit=10` | 3 (필요 시) | 최근 대화. 기록은 서버가 항상 저장하고 Agent는 읽기만 함 |
 
