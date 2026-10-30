@@ -49,6 +49,9 @@ const sentenceInput = $("sentence-input");
 const sentenceAddBtn = $("sentence-add-btn");
 const sentenceList = $("sentence-list");
 const sentenceCount = $("sentence-count");
+const sentenceScope = $("sentence-scope");
+const compareBtn = $("compare-btn");
+const compareHint = $("compare-hint");
 const submitBtn = $("submit-btn");
 const submitStatus = $("submit-status");
 const startCard = $("start-card");
@@ -202,14 +205,23 @@ function pushChat(entry, mode = currentMode) {
 }
 
 // ---------------------------------------------------------------------------
-// 사진 고르기: 탭마다 5장 중 최대 두 장을 골라 나란히 본다.
-// 먼저 고른 사진이 왼쪽, 나중에 고른 사진이 오른쪽이다.
+// 사진 고르기. 클릭하면 그 사진 한 장으로 바뀐다.
+// 두 장은 '비교해서 관찰하기'를 누른 뒤에만 나란히 보인다.
+// 비교 쌍은 고른 순서가 달라도 같다. 번호가 작은 사진이 왼쪽에 온다.
 // ---------------------------------------------------------------------------
 function modeImages(mode = currentMode) {
   return modeInfo(mode)?.images || [];
 }
 
-function selectedImages(mode = currentMode) {
+function compareWanted(mode = currentMode) {
+  return localStorage.getItem(storeKey("compare", mode)) === "1";
+}
+
+function setCompareWanted(on, mode = currentMode) {
+  localStorage.setItem(storeKey("compare", mode), on ? "1" : "0");
+}
+
+function storedImages(mode = currentMode) {
   const list = modeImages(mode);
   const saved = loadJson(storeKey("images", mode), null);
   let names = Array.isArray(saved) ? saved.filter((name) => list.includes(name)) : [];
@@ -219,6 +231,31 @@ function selectedImages(mode = currentMode) {
   }
   if (!names.length && list[0]) names = [list[0]];
   return names.slice(0, 2);
+}
+
+function orderedImages(names, mode = currentMode) {
+  const list = modeImages(mode);
+  return names.slice().sort((a, b) => list.indexOf(a) - list.indexOf(b));
+}
+
+function selectedImages(mode = currentMode) {
+  const names = storedImages(mode);
+  if (!compareWanted(mode)) return names.slice(0, 1);
+  return orderedImages(names, mode);
+}
+
+function saveSelectedImages(names, mode = currentMode) {
+  localStorage.setItem(
+    storeKey("images", mode),
+    JSON.stringify(orderedImages(names, mode).slice(0, 2))
+  );
+}
+
+function samePhotoPair(sentence, a, b) {
+  const left = sentence.image;
+  const right = sentence.imageRight;
+  if (!left || !right) return false;
+  return (left === a && right === b) || (left === b && right === a);
 }
 
 function selectedImage(mode = currentMode) {
@@ -244,7 +281,42 @@ function showSelectedImage() {
     if (compare) compare.removeAttribute("src");
   }
   renderImagePicker();
+  updateCompareButton();
+  renderSentences();
   if (typeof window.redrawMeasurements === "function") window.redrawMeasurements();
+}
+
+function updateCompareButton() {
+  if (!compareBtn) return;
+  const comparing = compareWanted() && selectedImages().length === 2;
+  const waiting = compareWanted() && selectedImages().length < 2;
+  compareBtn.setAttribute("aria-pressed", compareWanted() ? "true" : "false");
+  if (comparing) compareBtn.textContent = "한 장으로 보기";
+  else if (waiting) compareBtn.textContent = "비교할 사진을 클릭하세요";
+  else compareBtn.textContent = "비교해서 관찰하기";
+  if (!compareHint) return;
+  if (!compareWanted()) {
+    compareHint.hidden = true;
+    compareHint.textContent = "";
+  } else if (waiting) {
+    compareHint.hidden = false;
+    compareHint.textContent = "비교할 사진을 하나 더 누르세요. 고른 사진을 다시 누르면 빠집니다.";
+  } else {
+    compareHint.hidden = false;
+    compareHint.textContent = "고른 사진을 다시 누르면 빠집니다. 다른 사진을 누르면 그 사진부터 다시 고릅니다.";
+  }
+}
+
+if (compareBtn) {
+  compareBtn.addEventListener("click", () => {
+    if (compareWanted()) {
+      setCompareWanted(false);
+    } else {
+      setCompareWanted(true);
+      saveSelectedImages(selectedImages().slice(0, 1));
+    }
+    showSelectedImage();
+  });
 }
 
 function renderImagePicker() {
@@ -270,17 +342,18 @@ function renderImagePicker() {
     btn.appendChild(badge);
     btn.addEventListener("click", () => {
       const cur = selectedImages();
-      const pos = cur.indexOf(name);
       let next;
-      if (pos >= 0) {
-        if (cur.length === 1) return;
+      if (!compareWanted()) {
+        next = [name];
+      } else if (cur.includes(name)) {
         next = cur.filter((item) => item !== name);
+        if (!next.length) next = [name];
       } else if (cur.length < 2) {
         next = cur.concat(name);
       } else {
-        next = [cur[0], name];
+        next = [name];
       }
-      localStorage.setItem(storeKey("images", currentMode), JSON.stringify(next));
+      saveSelectedImages(next);
       showSelectedImage();
     });
     imagePicker.appendChild(btn);
@@ -294,10 +367,43 @@ function photoLabel(name, mode = currentMode) {
 }
 
 function sentencePhotoLabel(sentence, mode = currentMode) {
-  const left = photoLabel(sentence.image, mode);
-  const right = photoLabel(sentence.imageRight, mode);
-  if (left && right) return `왼쪽 ${left} 오른쪽 ${right}`;
-  return left;
+  if (sentence.image && sentence.imageRight) {
+    const ordered = orderedImages([sentence.image, sentence.imageRight], mode);
+    return `${photoLabel(ordered[0], mode)} · ${photoLabel(ordered[1], mode)}`;
+  }
+  return photoLabel(sentence.image, mode);
+}
+
+function selectionTitle() {
+  const picked = selectedImages();
+  if (picked.length === 2) return `${photoLabel(picked[0])} · ${photoLabel(picked[1])} 비교`;
+  return photoLabel(picked[0]) || "사진";
+}
+
+function sentencesForSelection(list = loadSentences()) {
+  const picked = selectedImages();
+  if (picked.length === 2) {
+    return list.filter((s) => samePhotoPair(s, picked[0], picked[1]));
+  }
+  const only = picked[0];
+  return list.filter((s) => s.image === only && !s.imageRight);
+}
+
+let sentenceDrafts = {};
+let draftSelection = "";
+
+function selectionDraftId() {
+  return `${currentMode}:${selectedImages().join("|")}`;
+}
+
+function syncSentenceDraft() {
+  if (!sentenceInput) return;
+  const id = selectionDraftId();
+  if (draftSelection && draftSelection !== id) {
+    sentenceDrafts[draftSelection] = sentenceInput.value;
+    sentenceInput.value = sentenceDrafts[id] || "";
+  }
+  draftSelection = id;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,12 +490,15 @@ function renderChat() {
 function renderSentences() {
   const info = modeInfo(currentMode);
   const editable = info?.status === "in_progress";
-  const list = loadSentences();
+  syncSentenceDraft();
+  const all = loadSentences();
+  const list = sentencesForSelection(all);
+  if (sentenceScope) sentenceScope.textContent = selectionTitle();
   sentenceList.innerHTML = "";
-  list.forEach((s, i) => {
+  list.forEach((s) => {
     const li = document.createElement("li");
     const label = sentencePhotoLabel(s);
-    if (label) {
+    if (label && s.imageRight) {
       const tag = document.createElement("span");
       tag.className = "sentence-photo";
       tag.textContent = label;
@@ -405,7 +514,10 @@ function renderSentences() {
       del.textContent = "삭제";
       del.addEventListener("click", () => {
         const cur = loadSentences();
-        cur.splice(i, 1);
+        const idx = cur.findIndex((item) =>
+          item.text === s.text && item.t === s.t && item.image === s.image && (item.imageRight || null) === (s.imageRight || null)
+        );
+        if (idx >= 0) cur.splice(idx, 1);
         saveSentences(cur);
         renderSentences();
       });

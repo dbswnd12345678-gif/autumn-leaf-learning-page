@@ -14,13 +14,14 @@
 | 탭 3 관찰 유형 기록 | POST `/api/tools/support-sentence-type` | 3 (관찰 문장 턴) | 방금 쓴 관찰 문장의 유형을 받아, 그 턴의 observations 행에 저장. 본문 `{"studentId","types"}`. types는 쉼표로 이은 유형 id. 관찰이 아니면 비움. 탭 1 진단 행은 바꾸지 않음 |
 | 관찰력 평가 데이터 조회 | `/api/tools/observation-assessment?studentId={studentId}` | 연구 확인 | 이 학생의 탭 1 진단 결과(OQ_A, 다양도 D, 사용한 관찰 유형, 아직 쓰지 않은 관찰 유형). 탭 3 답변은 진단 기록 조회를 씀 |
 | 오프로딩 단계 진단 조회 | `/api/tools/offloading-diagnosis?studentId={studentId}` | 연구 확인 | 단계 정의와 이 학생의 탭 2 진단 결과(요청 유형, 반영 비율). 탭 3 답변은 진단 기록 조회를 씀 |
-| 오프로딩 단계별 지원방법 조회 | `/api/tools/support-methods?studentId={studentId}` | 3 (진단 기록 다음) | 관찰 수준·객관도를 바로 위 단계로 올리는 방법 하나와, 오프로딩 단계의 말하는 방식. 두 축을 하나의 수준으로 합치지 않음 |
+| 오프로딩 단계별 지원방법 조회 | `/api/tools/support-methods?studentId={studentId}` | 3 (진단 기록 다음) | 탭 1 평균은 quality.profile(도우미 태도)만 정함. levelStages·objectivityStages는 방금 문장 기준으로 한 걸음 methods를 고를 때 씀. 오프로딩 단계의 말하는 방식 포함 |
+| 탭 3 사진 메모 조회 | `/api/tools/support-photos?studentId={studentId}&images={파일명,파일명}` | 3 (지원방법 다음) | support_photos.json의 canAsk·dontAsk·safeFacts·sampleSentence. images는 메시지 태그 `[images: ...]`와 같게. 비우면 탭 3 사진 전체 |
 | 단풍잎 관찰 시 관찰 유형 및 방법 지원 | `/api/tools/observation-methods?studentId={studentId}` | 연구 확인 | 아직 쓰지 않은 관찰 유형 최대 3개. 탭 3 절차에서는 진단 기록 조회가 유형을 이미 돌려주므로 부르지 않음 |
 | 개인별 대화 로그 조회 | `/api/tools/dialogue-log?studentId={studentId}&mode=support&limit=10` | 3 (필요 시) | 최근 대화. 기록은 서버가 항상 저장하고 Agent는 읽기만 함 |
 
 ## 역할 정리
 - 탭 1(관찰력 진단)은 최종 제출 때 채점용 Agent가 문장을 분류하고, 서버가 OQ_A를 계산해 `diagnoses` 표에 저장합니다. 탭 2(오프로딩 진단)는 최종 제출 때 서버가 키워드로 먼저 집계한 뒤 채점용 워크스페이스에 판정을 요청해 같은 표에 저장합니다. 두 탭 모두 대화 중 실시간 Agent는 없습니다.
-- 탭 3은 메시지를 보내기 전에 진단을 읽지 않습니다. Agent가 매 턴 먼저 "관찰·오프로딩 진단 기록 조회"를 부르고, 이어서 지원방법 조회로 말하는 방식을 정합니다. 학생이 관찰 문장을 쓴 턴에는 답을 쓰기 전에 "탭 3 관찰 유형 기록"을 부릅니다. 그 유형은 다음 턴의 진단 기록 조회에 포함됩니다. 예전 진단 조회 2개는 연구 확인용으로 남아 있고, 탭 3 절차에서는 부르지 않습니다.
+- 탭 3은 메시지를 보내기 전에 진단을 읽지 않습니다. Agent가 매 턴 먼저 "관찰·오프로딩 진단 기록 조회"를 부르고, 이어서 지원방법 조회와 "탭 3 사진 메모 조회"를 부릅니다. 지원방법의 quality.profile은 탭 1 난이도·태도만 담고, 이번 안내의 한 걸음은 방금 문장의 정보 차원(levelStages)과 사진 메모에서 고릅니다. 탭 1 평균으로 고른 methods를 답 템플릿으로 쓰지 않으며, 문장이 평균보다 높아도 낮은 관찰로 되돌리지 않습니다. 학생이 관찰 문장을 쓴 턴에는 답을 쓰기 전에 "탭 3 관찰 유형 기록"을 부릅니다. 그 유형은 다음 턴의 진단 기록 조회에 포함됩니다. 예전 진단 조회 2개는 연구 확인용으로 남아 있고, 탭 3 절차에서는 부르지 않습니다.
 - 대화 로그 "기록"은 Flow가 아니라 서버(`/api/chat`)가 항상 저장합니다. Agent가 호출을 빼먹어도 기록은 남습니다.
 
 ## 호출 준수 확인

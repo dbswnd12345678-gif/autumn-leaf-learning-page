@@ -651,33 +651,100 @@ def _mean_stage(stages: list[dict[str, Any]], mean: Any) -> Optional[dict[str, A
 
 
 def quality_scaffold(assess_payload: Optional[dict[str, Any]]) -> dict[str, Any]:
-    """관찰 수준 평균과 객관도 평균에서 이번 답에 쓸 스캐폴딩을 고른다.
+    """탭 1 평균은 도우미 태도(프로필)만 정하고, 이번 답의 한 걸음은 방금 문장 기준으로 고르게 한다.
 
-    분류 전이거나 평균 칸이 없는 예전 기록이면 단계를 만들지 않는다.
-    객관도가 0 또는 1이면 객관도를, 2 또는 3이면 관찰 수준을 한 단계만 올린다.
+    levelStages·objectivityStages에는 모든 단계의 meaning/methods를 넣는다.
+    profile에는 탭 1 평균이 속한 단계와, 아래로 되돌리지 말 것·한 걸음만 등 태도 규칙을 넣는다.
+    예전 focus/level/objectivity 칸은 호환용으로 두되, 답 문장 템플릿으로 쓰지 않는다.
     """
-    payload = assess_payload or {}
-    empty = {"focus": None, "level": None, "objectivity": None}
-    if payload.get("method") not in ("agent", "partial"):
-        return empty
-    if "leMean" not in payload and "doMean" not in payload:
-        return empty
     support = load_knowledge("support_methods")
+    level_stages = [_public_scaffold(s) for s in support["byObservationLevel"]["stages"] if "min" in s]
+    objectivity_stages = [_public_scaffold(s) for s in support["byObjectivity"]["stages"] if "min" in s or s.get("whenMeanMissing")]
+    empty_profile = {
+        "leMean": None,
+        "doMean": None,
+        "levelStage": None,
+        "objectivityStage": None,
+        "pace": "gentle",
+        "rules": [
+            "이번 답의 한 걸음은 방금 학생이 쓴 문장의 정보 차원에서 고른다.",
+            "탭 1 평균보다 높은 문장이 나오면 낮은 관찰로 되돌리지 않는다.",
+            "탭 1이 낮아도 문장이 올라가면 그 위의 한 걸음만 안내한다.",
+            "한 번에 여러 걸음 올리거나 부위를 대신 지정하지 않는다.",
+            "사진에서 보이는 사실을 먼저 말하지 않는다.",
+        ],
+        "levelDontDo": [],
+        "objectivityDontDo": [],
+    }
+    base = {
+        "focus": None,
+        "priority": support.get("qualityPriority"),
+        "level": None,
+        "objectivity": None,
+        "profile": empty_profile,
+        "levelStages": level_stages,
+        "objectivityStages": objectivity_stages,
+    }
+    payload = assess_payload or {}
+    if payload.get("method") not in ("agent", "partial"):
+        return base
+    if "leMean" not in payload and "doMean" not in payload:
+        return base
+
     level = _mean_stage(support["byObservationLevel"]["stages"], payload.get("leMean"))
     objectivity = _mean_stage(support["byObjectivity"]["stages"], payload.get("doMean"))
-    if objectivity and objectivity.get("stage") in (0, 1):
-        focus = "objectivity"
-    elif level:
-        focus = "level"
-    elif objectivity:
-        focus = "objectivity"
-    else:
-        focus = None
+    level_n = level.get("stage") if level else None
+    obj_n = objectivity.get("stage") if objectivity else None
+    gentle = (level_n is not None and level_n <= 1) or (obj_n is not None and obj_n <= 1) or level_n is None
+    profile = {
+        "leMean": payload.get("leMean"),
+        "doMean": payload.get("doMean"),
+        "levelStage": level_n,
+        "objectivityStage": obj_n,
+        "pace": "gentle" if gentle else "standard",
+        "rules": empty_profile["rules"]
+        + (
+            [
+                "탭 1에서 객관도 평균이 낮았다. 느낌·추측 문장이 나오면 보이는 사실로 돌아오게 한다.",
+                "이미 객관적인 관찰 문장을 썼다면 객관도 연습으로 아래로 보내지 않는다.",
+            ]
+            if obj_n is not None and obj_n <= 1
+            else []
+        ),
+        "levelDontDo": list((level or {}).get("dontDo") or []),
+        "objectivityDontDo": list((objectivity or {}).get("dontDo") or []),
+    }
+    # 호환: 예전 프롬프트가 level/objectivity를 읽더라도 methods를 답 템플릿으로 쓰지 않게
+    # 프로필 단계 요약만 남겨 둔다. methods는 비운다.
+    level_public = _public_scaffold(level)
+    obj_public = _public_scaffold(objectivity)
+    if level_public:
+        level_public = {**level_public, "methods": [], "role": "profile_only"}
+    if obj_public:
+        obj_public = {**obj_public, "methods": [], "role": "profile_only"}
     return {
-        "focus": focus,
+        "focus": None,
         "priority": support.get("qualityPriority"),
-        "level": _public_scaffold(level),
-        "objectivity": _public_scaffold(objectivity),
+        "level": level_public,
+        "objectivity": obj_public,
+        "profile": profile,
+        "levelStages": level_stages,
+        "objectivityStages": objectivity_stages,
+    }
+
+
+def support_photo_notes(image_names: Optional[list[str]] = None) -> dict[str, Any]:
+    """탭 3 사진 메모. image_names가 있으면 그 파일만, 없으면 support 사진 전체를 돌린다."""
+    data = load_knowledge("support_photos")
+    photos = data.get("photos") or {}
+    if image_names:
+        selected = {name: photos[name] for name in image_names if name in photos}
+    else:
+        selected = dict(photos)
+    return {
+        "version": data.get("version"),
+        "photos": selected,
+        "howToUse": data.get("howToUse") or [],
     }
 
 

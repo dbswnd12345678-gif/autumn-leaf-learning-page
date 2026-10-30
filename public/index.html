@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>단풍현상 관찰 학습</title>
-<link rel="stylesheet" href="style.css?v=10" />
+<link rel="stylesheet" href="style.css?v=12" />
 </head>
 <body class="mode-assess">
   <header class="app-header">
@@ -77,6 +77,8 @@
         </div>
       </div>
       <div class="image-picker" id="image-picker" role="group" aria-label="관찰할 사진 고르기"></div>
+      <button type="button" id="compare-btn" class="compare-btn" aria-pressed="false">비교해서 관찰하기</button>
+      <p id="compare-hint" class="compare-hint" hidden></p>
       <ul class="measure-list" id="measure-list"></ul>
       <p class="hint" id="lesson-hint"></p>
     </section>
@@ -100,7 +102,7 @@
 
         <div class="sentence-section" id="sentence-section">
           <div class="sentence-head">
-            <h3>내 관찰 문장 <span id="sentence-count">0</span>개</h3>
+            <h3><span id="sentence-scope">사진</span> 관찰 문장 <span id="sentence-count">0</span>개</h3>
             <span class="sentence-tip" id="sentence-tip"></span>
           </div>
           <ol class="sentence-list" id="sentence-list"></ol>
@@ -117,7 +119,7 @@
     </section>
   </main>
 
-  <script src="script.js?v=12"></script>
+  <script src="script.js?v=15"></script>
   <script src="measure.js?v=4"></script>
 </body>
 </html>

@@ -285,6 +285,36 @@ body {
   display: none;
 }
 
+.compare-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border: 1px solid #e7b98a;
+  border-radius: 999px;
+  background: #fff;
+  color: #8a4a12;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.compare-btn[aria-pressed="true"] {
+  background: #c0521b;
+  border-color: #c0521b;
+  color: #fff;
+}
+
+.compare-hint {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #6a5a4a;
+}
+
+.compare-hint[hidden] {
+  display: none;
+}
+
 .image-thumb {
   position: relative;
   flex: 0 0 auto;

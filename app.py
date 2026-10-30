@@ -37,7 +37,7 @@ if sys.platform == "win32":
 import httpx
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -369,10 +369,19 @@ def student_levels(student_id: str) -> tuple[None, Optional[int]]:
     return None, off_stage
 
 
-def build_support_message(student_id: str, student_message: str, input_kind: str) -> str:
+def build_support_message(
+    student_id: str,
+    student_message: str,
+    input_kind: str,
+    images: Optional[list[str]] = None,
+) -> str:
     # AnythingLLM은 메시지 앞에 "@agent"가 있어야 도구(Agent Flow)를 호출한다.
     # 진단 내용은 붙이지 않는다. Agent가 진단 기록 조회 Flow로 SQLite에서 읽는다.
+    # 사진 파일명은 사진 메모 조회 Flow에 그대로 넣도록 태그에 적는다.
     tag = f"[studentId: {student_id}] [input: {input_kind}]"
+    names = [name for name in (images or []) if name]
+    if names:
+        tag += f" [images: {','.join(names)}]"
     return f"@agent {tag}\n\n{student_message}"
 
 
@@ -433,7 +442,7 @@ async def chat(req: ChatRequest):
     support_level: Optional[int] = None
     last_tool_id = 0
     if mode == "support":
-        agent_message = build_support_message(student_id, message, input_kind)
+        agent_message = build_support_message(student_id, message, input_kind, images)
         last_tool_id = db.get_max_tool_call_id(student_id)
     else:
         # 탭 2는 @agent 없이 학생의 말을 보낸다. 사진이 두 장이면 왼쪽·오른쪽 번호만 앞에 붙인다.
@@ -920,13 +929,15 @@ def tool_support_methods(
     quality = diagnosis.quality_scaffold(assess_payload)
     offloading = diagnosis.offloading_support(off_stage)
     support = diagnosis.load_knowledge("support_methods")
+    profile = quality.get("profile") or {}
 
     db.log_tool_call(
         student_id=student_id,
         tool_name="support_methods",
         result_summary=(
             f"observation={observation['rule']['id']}, nextType={observation.get('nextType')}, "
-            f"quality={quality.get('focus')}, offloadingStage={off_stage}"
+            f"pace={profile.get('pace')}, levelStage={profile.get('levelStage')}, "
+            f"objectivityStage={profile.get('objectivityStage')}, offloadingStage={off_stage}"
         ),
     )
     return {
@@ -935,11 +946,56 @@ def tool_support_methods(
         "offloading": offloading,
         "principles": support["principles"],
         "howToUse": (
-            "quality.focus가 objectivity이면 quality.objectivity의 methods 하나만 쓰세요. "
-            "level이면 quality.level의 methods 하나만 쓰세요. 없는 축은 다루지 마세요. "
-            "바로 위 단계로 한 걸음만 올리고, 두 축을 한 답에 같이 올리지 마세요. "
-            "offloading.methods는 그 내용을 어떻게 말할지만 정합니다. "
-            "단계 숫자와 평균은 학생에게 말하지 마세요."
+            "quality.profile은 탭 1 진단으로 정한 도우미 태도입니다. 평균·단계 숫자와 "
+            "quality.level·quality.objectivity의 methods는 답 문장으로 쓰지 마세요. "
+            "방금 문장이 속성 하나(1차)이면 quality.levelStages에서 stage 1의 methods로 "
+            "한 걸음만 올리세요. 위치와 속성을 함께 말했으면 stage 2의 methods를 쓰세요. "
+            "문장이 탭 1 평균보다 높아도 낮은 단계로 되돌리지 마세요. "
+            "느낌·추측 문장일 때만 quality.objectivityStages를 참고하세요. "
+            "이미 객관적인 문장이면 객관도 연습으로 내려보내지 마세요. "
+            "들어갈 부위는 학생이 고르게 하고, profile.rules와 dontDo를 지키세요. "
+            "offloading.methods는 말하는 방식만 정합니다. 단계·평균은 학생에게 말하지 마세요."
+        ),
+    }
+
+
+@app.get("/api/tools/support-photos")
+def tool_support_photos(
+    studentId: str = Query(...),
+    images: Optional[str] = Query(
+        None,
+        description="쉼표로 이은 사진 파일명. 비우면 탭 3 사진 전체",
+    ),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """탭 3 사진별 관찰 메모(canAsk, dontAsk, safeFacts, sampleSentence)를 돌려준다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+    mode_images = MODE_IMAGES["support"]
+    requested: list[str] = []
+    if images:
+        for part in images.split(","):
+            name = part.strip()
+            if name in mode_images and name not in requested:
+                requested.append(name)
+    notes = diagnosis.support_photo_notes(requested or None)
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="support_photos",
+        input_text=images or "",
+        result_summary=f"count={len(notes.get('photos') or {})}, images={','.join(requested) or 'all'}",
+    )
+    return {
+        **notes,
+        "requested": requested,
+        "howToUse": (
+            "메시지 태그의 [images: ...]에 있는 파일명만 고르세요. "
+            "canAsk는 안내할 때 참고만 하고 부위를 대신 지정하지 마세요. "
+            "dontAsk는 묻거나 말하지 마세요. "
+            "safeFacts는 학생이 그 사실을 명시적으로 요청했을 때만 하나만 주세요. "
+            "sampleSentence는 관찰 문장 전체를 요청했을 때만 쓰세요. "
+            "확인 요청에서는 사진과 safeFacts로 맞다/틀리다만 판단하고, "
+            "틀렸을 때 학생이 말하지 않은 새 사실을 넣지 마세요."
         ),
     }
 
@@ -1152,6 +1208,15 @@ def health():
 
 
 # 학습 페이지(public/)는 마지막에 연결한다. 그래야 /api/*가 먼저 처리된다.
+# index.html은 캐시에 남으면 예전 화면이 그대로 보이므로, 매번 확인하게 한다.
+@app.get("/")
+def index_page():
+    return FileResponse(
+        PUBLIC_DIR / "index.html",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 app.mount("/", StaticFiles(directory=str(PUBLIC_DIR), html=True), name="public")
 
 
