@@ -14,7 +14,6 @@
   };
   const statusEl = document.getElementById("measure-status");
   const listEl = document.getElementById("measure-list");
-  const chatInput = document.getElementById("sentence-input");
   const toolButtons = document.querySelectorAll(".tool-btn[data-tool]");
   let I18N = {};
   try {
@@ -62,12 +61,6 @@
     return measurements.filter((m) => shown.has(m.image));
   }
 
-  function slotForImage(file) {
-    if (file && currentImage(1) === file) return 1;
-    if (file && currentImage(2) === file) return 2;
-    return null;
-  }
-
   function syncImages() {
     const next = { 1: currentImage(1), 2: currentImage(2) };
     if (draftSlot && lastImages[draftSlot] && lastImages[draftSlot] !== next[draftSlot]) {
@@ -99,6 +92,10 @@
     else setStatus(t("idle"));
     renderAll();
   }
+
+  window.releaseMeasureTool = function () {
+    setTool("select");
+  };
 
   function displayedImageBox(slotKey) {
     const img = images[slotKey];
@@ -196,10 +193,18 @@
     renderAll();
   }
 
+  function photoNumberFor(file) {
+    if (file && typeof window.photoNumberForFile === "function") {
+      const n = window.photoNumberForFile(file);
+      if (n) return n;
+    }
+    return "";
+  }
+
   function listLabel(m) {
-    const slot = slotForImage(m.image) || m.slot;
-    if (m.type === "length") return t("labelLength", { slot: slot, value: m.value });
-    return t("labelAngle", { slot: slot, value: m.value });
+    const photo = photoNumberFor(m.image);
+    if (m.type === "length") return t("labelLength", { slot: photo, value: m.value });
+    return t("labelAngle", { slot: photo, value: m.value });
   }
 
   function renderList() {
@@ -425,7 +430,7 @@
         type: "length",
         points: draft.slice(),
         value: px,
-        label: t("labelLength", { slot: draftSlot, value: px }),
+        label: t("labelLength", { slot: photoNumberFor(imageName), value: px }),
       });
       draft = [];
       draftSlot = null;
@@ -442,7 +447,7 @@
         type: "angle",
         points: draft.slice(),
         value: deg,
-        label: t("labelAngle", { slot: draftSlot, value: deg }),
+        label: t("labelAngle", { slot: photoNumberFor(imageName), value: deg }),
       });
       draft = [];
       draftSlot = null;
@@ -520,18 +525,6 @@
     renderList();
     renderAll();
     setStatus(t("cleared"));
-  });
-  document.getElementById("tool-to-chat")?.addEventListener("click", () => {
-    if (!chatInput) return;
-    const visible = visibleMeasurements();
-    if (visible.length === 0) {
-      setStatus(t("emptyChat"));
-      return;
-    }
-    const text = t("chatHeader") + "\n" + visible.map((m) => "- " + listLabel(m)).join("\n");
-    chatInput.value = chatInput.value.trim() ? chatInput.value.trim() + "\n" + text : text;
-    chatInput.focus();
-    setStatus(t("chatDone"));
   });
 
   Object.values(images).forEach((img) => {

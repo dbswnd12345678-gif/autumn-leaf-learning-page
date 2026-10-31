@@ -4,16 +4,16 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>단풍현상 관찰 학습</title>
-<link rel="stylesheet" href="style.css?v=12" />
+<link rel="stylesheet" href="style.css?v=18" />
 </head>
 <body class="mode-assess">
   <header class="app-header">
     <div class="header-top">
       <h1>🍁 단풍현상 관찰 학습</h1>
       <nav class="lesson-tabs" role="tablist" aria-label="관찰 학습 탭">
-        <button type="button" class="lesson-tab" role="tab" data-mode="assess" aria-selected="true">탭 1 관찰하기</button>
-        <button type="button" class="lesson-tab" role="tab" data-mode="offload" aria-selected="false">탭 2 AI와 관찰하기</button>
-        <button type="button" class="lesson-tab" role="tab" data-mode="support" aria-selected="false">탭 3 AI 도우미와 관찰하기</button>
+        <button type="button" class="lesson-tab" role="tab" data-mode="assess" aria-selected="true">탭 1 사전 과제</button>
+        <button type="button" class="lesson-tab" role="tab" data-mode="offload" aria-selected="false">탭 2 AI 활용 과제</button>
+        <button type="button" class="lesson-tab" role="tab" data-mode="support" aria-selected="false">탭 3 사후 과제</button>
       </nav>
       <div class="timer" id="timer" aria-live="off" title="제한 시간">제한 없음</div>
     </div>
@@ -34,14 +34,13 @@
         <button type="button" class="measure-toggle" id="measure-toggle" aria-expanded="false" aria-controls="measure-toolbar-wrap">
           관찰 도구
         </button>
-        <div class="measure-toolbar-wrap" id="measure-toolbar-wrap" hidden>
+        <div class="measure-toolbar-wrap is-collapsed" id="measure-toolbar-wrap" aria-hidden="true">
           <div class="measure-toolbar" id="measure-toolbar">
-            <button type="button" class="tool-btn active" id="tool-select" data-tool="select">선택</button>
+            <button type="button" class="tool-btn active" id="tool-select" data-tool="select">도구 해제</button>
             <button type="button" class="tool-btn" id="tool-ruler" data-tool="ruler">자</button>
             <button type="button" class="tool-btn" id="tool-protractor" data-tool="protractor">각도기</button>
             <button type="button" class="tool-btn" id="tool-undo">마지막 지우기</button>
             <button type="button" class="tool-btn" id="tool-clear">모두 지우기</button>
-            <button type="button" class="tool-btn" id="tool-to-chat">문장 입력란에 넣기</button>
           </div>
           <p class="measure-status" id="measure-status">도구를 고른 뒤 사진 위를 클릭하세요. 길이는 화면 기준 상대값이고, 각도는 실제 각도(°)입니다.</p>
         </div>
@@ -59,9 +58,6 @@
         "outside": "사진 안의 잎 위를 클릭하세요. (여백은 측정되지 않습니다)",
         "undone": "마지막 측정을 지웠습니다.",
         "cleared": "측정값을 모두 지웠습니다.",
-        "emptyChat": "입력란에 넣을 측정값이 없습니다. 먼저 자나 각도기로 재어 보세요.",
-        "chatHeader": "[관찰 도구]",
-        "chatDone": "측정값을 관찰 문장 입력란에 넣었습니다. 문장으로 다듬어 추가하세요.",
         "labelLength": "사진{slot} 자: 상대 길이 {value}",
         "labelAngle": "사진{slot} 각도기: {value}°"
       }
@@ -76,9 +72,11 @@
           <svg class="measure-overlay" id="overlay-2" data-slot="2" preserveAspectRatio="none"></svg>
         </div>
       </div>
+      <div class="observe-mode-toggle" role="group" aria-label="관찰 방식 고르기">
+        <button type="button" id="observe-single-btn" class="observe-mode-btn" aria-pressed="true">사진 1장 관찰</button>
+        <button type="button" id="observe-compare-btn" class="observe-mode-btn" aria-pressed="false">사진 2장 비교 관찰</button>
+      </div>
       <div class="image-picker" id="image-picker" role="group" aria-label="관찰할 사진 고르기"></div>
-      <button type="button" id="compare-btn" class="compare-btn" aria-pressed="false">비교해서 관찰하기</button>
-      <p id="compare-hint" class="compare-hint" hidden></p>
       <ul class="measure-list" id="measure-list"></ul>
       <p class="hint" id="lesson-hint"></p>
     </section>
@@ -93,6 +91,12 @@
 
       <div class="work-area" id="work-area" hidden>
         <div class="chat-section" id="chat-section">
+          <div class="chat-head">
+            <h3>
+              <span class="chat-scope-pill" id="chat-scope">사진</span>
+              <span class="chat-scope-note">대화</span>
+            </h3>
+          </div>
           <div class="chat-log" id="chat-log"></div>
           <form id="chat-form" class="chat-input-row">
             <textarea id="chat-input" placeholder="" rows="2" required></textarea>
@@ -119,7 +123,7 @@
     </section>
   </main>
 
-  <script src="script.js?v=15"></script>
-  <script src="measure.js?v=4"></script>
+  <script src="script.js?v=26"></script>
+  <script src="measure.js?v=7"></script>
 </body>
 </html>

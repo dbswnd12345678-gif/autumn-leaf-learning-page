@@ -1,10 +1,11 @@
-// 3개 탭(모드): assess(관찰력 진단), offload(오프로딩 진단), support(AI Agent 지원)
+// 3개 탭: assess(사전 과제), offload(탭 2 AI 과제), support(사후 과제).
+// 탭 2는 주소의 group=A(생성형 AI) 또는 group=B(AI Agent)에 따라 달라진다.
 // 서버가 모드별 세션과 사진을 정한다. 제한 시간은 SESSION_SECONDS가 0보다 클 때만 흐른다.
 const MODES = {
   assess: {
     subtitle: "AI 없이 사진을 보고 관찰한 내용을 문장으로 적어 보세요. 여러 문장을 쓸 수 있어요.",
     hint: "※ 사진에서 보이는 것을 한 문장씩 적어 주세요. 다 쓰면 최종 제출을 누르세요.",
-    startTitle: "탭 1 · 관찰하기",
+    startTitle: "탭 1 · 사전 과제",
     startDesc: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 다 쓰면 최종 제출을 누르세요.",
     startDescTimed: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 시작하면 제한 시간이 흐르고, 시간이 끝나면 자동으로 제출돼요.",
     chat: false,
@@ -12,31 +13,75 @@ const MODES = {
     sentenceTip: "AI 없이 직접 관찰하세요.",
   },
   offload: {
-    subtitle: "AI에게 자유롭게 질문하거나 요청하면서 관찰 과제를 해 보세요. 마지막에 내 관찰 문장을 제출합니다.",
+    subtitle: "생성형 AI에게 질문하거나 요청하면서 단풍잎을 관찰합니다. 관찰 문장은 따로 적어 제출합니다.",
     hint: "※ AI에게 무엇이든 물어봐도 돼요. 제출할 관찰 문장은 오른쪽 아래 입력란에 따로 적어 주세요.",
-    startTitle: "탭 2 · AI와 관찰하기",
-    startDesc: "AI에게 자유롭게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요.",
-    startDescTimed: "AI에게 자유롭게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요. 시작하면 제한 시간이 흐릅니다.",
+    startTitle: "탭 2 · 생성형 AI 활용 과제",
+    startDesc: "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요.",
+    startDescTimed: "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요. 시작하면 제한 시간이 흐릅니다.",
     chat: true,
     sentenceToAI: false,
-    greeting: "안녕하세요! 단풍잎 관찰을 도와줄게요. 궁금한 것이나 부탁할 것을 자유롭게 말해 주세요.",
+    greeting: "안녕하세요. 단풍잎 관찰을 도와드릴게요. 궁금한 것이나 부탁할 것을 자유롭게 말해 주세요.",
     chatPlaceholder: "AI에게 질문하거나 요청하세요... (Enter 전송, Shift+Enter 줄바꿈)",
     sentenceTip: "AI 답변과 별개로, 내가 관찰한 내용을 적어요.",
   },
   support: {
-    subtitle: "AI 도우미가 관찰하는 방법을 도와줍니다. 관찰 문장을 입력하면 도우미가 다음에 볼 것을 안내해요.",
-    hint: "※ 관찰 문장을 추가하면 AI 도우미가 도움말을 줍니다. 궁금한 것은 위쪽 대화창에 물어보세요.",
-    startTitle: "탭 3 · AI 도우미와 관찰하기",
-    startDesc: "AI 도우미와 함께 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 방법을 안내해요.",
-    startDescTimed: "AI 도우미와 함께 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 방법을 안내해요. 시작하면 제한 시간이 흐릅니다.",
-    chat: true,
-    sentenceToAI: true,
-    greeting: "안녕하세요! 저는 관찰 도우미예요. 사진을 보고 관찰한 문장을 아래에 입력해 보세요. 궁금한 점은 여기에 물어봐도 돼요.",
-    chatPlaceholder: "AI 도우미에게 질문하세요... (Enter 전송, Shift+Enter 줄바꿈)",
-    sentenceTip: "문장을 추가하면 도우미가 답해요.",
+    subtitle: "AI 없이 사진을 보고 관찰한 내용을 문장으로 적어 보세요. 여러 문장을 쓸 수 있어요.",
+    hint: "※ 사진에서 보이는 것을 한 문장씩 적어 주세요. 다 쓰면 최종 제출을 누르세요.",
+    startTitle: "탭 3 · 사후 과제",
+    startDesc: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 다 쓰면 최종 제출을 누르세요.",
+    startDescTimed: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 시작하면 제한 시간이 흐르고, 시간이 끝나면 자동으로 제출돼요.",
+    chat: false,
+    sentenceToAI: false,
+    sentenceTip: "AI 없이 직접 관찰하세요.",
   },
 };
 const MODE_ORDER = ["assess", "offload", "support"];
+
+function urlGroup() {
+  const value = new URLSearchParams(location.search).get("group") || "";
+  const code = value.trim().toUpperCase();
+  return code === "A" || code === "B" ? code : "";
+}
+
+let studyGroup = urlGroup() || localStorage.getItem("autumn_leaf_group") || "";
+
+function applyStudyGroup(group, mismatch = false) {
+  if (group === "A" || group === "B") {
+    studyGroup = group;
+    localStorage.setItem("autumn_leaf_group", group);
+  }
+  const tab2 = document.querySelector('.lesson-tab[data-mode="offload"]');
+  const spec = MODES.offload;
+  if (studyGroup === "B") {
+    if (tab2) tab2.textContent = "탭 2 AI Agent 활용 과제";
+    spec.subtitle = "AI 도우미와 대화하면서 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 다음에 볼 것을 안내해요.";
+    spec.hint = "※ 관찰 문장을 추가하면 AI 도우미가 도움말을 줍니다. 궁금한 것은 위쪽 대화창에 물어보세요.";
+    spec.startTitle = "탭 2 · AI Agent 활용 과제";
+    spec.startDesc = "AI 도우미와 함께 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 방법을 안내해요.";
+    spec.startDescTimed = "AI 도우미와 함께 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 방법을 안내해요. 시작하면 제한 시간이 흐릅니다.";
+    spec.sentenceToAI = true;
+    spec.greeting = "안녕하세요! 저는 관찰 도우미예요. 사진을 보고 관찰한 문장을 아래에 입력해 보세요. 궁금한 점은 여기에 물어봐도 돼요.";
+    spec.chatPlaceholder = "AI 도우미에게 질문하세요... (Enter 전송, Shift+Enter 줄바꿈)";
+    spec.sentenceTip = "문장을 추가하면 도우미가 답해요.";
+  } else if (studyGroup === "A") {
+    if (tab2) tab2.textContent = "탭 2 생성형 AI 활용 과제";
+    spec.subtitle = "생성형 AI에게 질문하거나 요청하면서 단풍잎을 관찰합니다. 관찰 문장은 따로 적어 제출합니다.";
+    spec.hint = "※ AI에게 무엇이든 물어봐도 돼요. 제출할 관찰 문장은 오른쪽 아래 입력란에 따로 적어 주세요.";
+    spec.startTitle = "탭 2 · 생성형 AI 활용 과제";
+    spec.startDesc = "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요.";
+    spec.startDescTimed = "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요. 시작하면 제한 시간이 흐릅니다.";
+    spec.sentenceToAI = false;
+    spec.greeting = "안녕하세요. 단풍잎 관찰을 도와드릴게요. 궁금한 것이나 부탁할 것을 자유롭게 말해 주세요.";
+    spec.chatPlaceholder = "AI에게 질문하거나 요청하세요... (Enter 전송, Shift+Enter 줄바꿈)";
+    spec.sentenceTip = "AI 답변과 별개로, 내가 관찰한 내용을 적어요.";
+  } else if (tab2) {
+    tab2.textContent = "탭 2 AI 활용 과제";
+  }
+  if (mismatch && studyGroup) {
+    const label = studyGroup === "B" ? "실험군(B)" : "대조군(A)";
+    showNotice(`이 학번은 ${label}으로 배정되어 있어 그 과제가 열립니다.`);
+  }
+}
 
 const $ = (id) => document.getElementById(id);
 const mainImage = $("main-image");
@@ -50,8 +95,9 @@ const sentenceAddBtn = $("sentence-add-btn");
 const sentenceList = $("sentence-list");
 const sentenceCount = $("sentence-count");
 const sentenceScope = $("sentence-scope");
-const compareBtn = $("compare-btn");
-const compareHint = $("compare-hint");
+const chatScope = $("chat-scope");
+const observeSingleBtn = $("observe-single-btn");
+const observeCompareBtn = $("observe-compare-btn");
 const submitBtn = $("submit-btn");
 const submitStatus = $("submit-status");
 const startCard = $("start-card");
@@ -146,8 +192,12 @@ async function fetchStatus() {
     serverStatus = null;
     return;
   }
-  const data = await api(`/api/session/status?studentId=${encodeURIComponent(studentId)}`);
+  const params = new URLSearchParams({ studentId });
+  const requested = urlGroup();
+  if (requested) params.set("group", requested);
+  const data = await api(`/api/session/status?${params.toString()}`);
   serverStatus = data.modes;
+  applyStudyGroup(data.group || "", !!data.groupMismatch);
 }
 
 function modeInfo(mode) {
@@ -194,20 +244,53 @@ function saveSentences(list, mode = currentMode) {
   localStorage.setItem(storeKey("sentences", mode), JSON.stringify(list));
 }
 
-function loadChat(mode = currentMode) {
-  return loadJson(storeKey("chat", mode), []);
+// 대화는 사진(또는 비교 쌍)마다 따로 둔다. AnythingLLM sessionId도 같은 키를 쓴다.
+function photoThreadKey(mode = currentMode) {
+  const picked = selectedImages(mode);
+  if (!picked.length) return "none";
+  if (picked.length === 1) return picked[0];
+  return pairKey(picked, mode);
 }
 
-function pushChat(entry, mode = currentMode) {
-  const list = loadChat(mode);
+function loadChatBucket(mode = currentMode) {
+  const raw = loadJson(storeKey("chat", mode), null);
+  if (Array.isArray(raw)) {
+    const key = photoThreadKey(mode);
+    const bucket = { [key]: raw.slice(-200) };
+    localStorage.setItem(storeKey("chat", mode), JSON.stringify(bucket));
+    return bucket;
+  }
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+function loadChat(mode = currentMode, threadKey = photoThreadKey(mode)) {
+  const bucket = loadChatBucket(mode);
+  const list = bucket[threadKey];
+  return Array.isArray(list) ? list : [];
+}
+
+function pushChat(entry, mode = currentMode, threadKey = photoThreadKey(mode)) {
+  const bucket = loadChatBucket(mode);
+  const list = Array.isArray(bucket[threadKey]) ? bucket[threadKey] : [];
   list.push(entry);
-  localStorage.setItem(storeKey("chat", mode), JSON.stringify(list.slice(-200)));
+  bucket[threadKey] = list.slice(-200);
+  localStorage.setItem(storeKey("chat", mode), JSON.stringify(bucket));
+}
+
+function chatSessionId(mode = currentMode, threadKey = photoThreadKey(mode)) {
+  const photo = String(threadKey).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `${sessionId}__${mode}__${photo}`;
+}
+
+function isChatThreadOnScreen(mode, threadKey) {
+  return mode === currentMode && threadKey === photoThreadKey(currentMode);
 }
 
 // ---------------------------------------------------------------------------
 // 사진 고르기. 클릭하면 그 사진 한 장으로 바뀐다.
-// 두 장은 '비교해서 관찰하기'를 누른 뒤에만 나란히 보인다.
-// 비교 쌍은 고른 순서가 달라도 같다. 번호가 작은 사진이 왼쪽에 온다.
+// 두 장은 '사진 2장 비교 관찰'일 때만 나란히 보인다.
+// 비교 시 먼저 클릭한 사진이 1번째(왼쪽), 나중에 클릭한 사진이 2번째(오른쪽).
+// 문장·대화 키는 사진 번호 순으로 맞춰, 클릭 순서가 달라도 같은 쌍으로 본다.
 // ---------------------------------------------------------------------------
 function modeImages(mode = currentMode) {
   return modeInfo(mode)?.images || [];
@@ -238,17 +321,28 @@ function orderedImages(names, mode = currentMode) {
   return names.slice().sort((a, b) => list.indexOf(a) - list.indexOf(b));
 }
 
+// 화면·선택 안내용: 비교 모드에서는 클릭한 순서를 그대로 쓴다.
 function selectedImages(mode = currentMode) {
   const names = storedImages(mode);
   if (!compareWanted(mode)) return names.slice(0, 1);
-  return orderedImages(names, mode);
+  return names.slice(0, 2);
+}
+
+// 같은 두 장이면 클릭 순서와 관계없이 하나의 키로 묶는다.
+function pairKey(names, mode = currentMode) {
+  const picked = (names || []).filter(Boolean).slice(0, 2);
+  if (picked.length < 2) return picked[0] || "none";
+  return orderedImages(picked, mode).join("|");
 }
 
 function saveSelectedImages(names, mode = currentMode) {
-  localStorage.setItem(
-    storeKey("images", mode),
-    JSON.stringify(orderedImages(names, mode).slice(0, 2))
-  );
+  const list = modeImages(mode);
+  const unique = [];
+  for (const name of names || []) {
+    if (list.includes(name) && !unique.includes(name)) unique.push(name);
+    if (unique.length >= 2) break;
+  }
+  localStorage.setItem(storeKey("images", mode), JSON.stringify(unique));
 }
 
 function samePhotoPair(sentence, a, b) {
@@ -283,54 +377,54 @@ function showSelectedImage() {
   renderImagePicker();
   updateCompareButton();
   renderSentences();
+  if (MODES[currentMode].chat) {
+    syncChatDraft();
+    renderChat();
+  }
   if (typeof window.redrawMeasurements === "function") window.redrawMeasurements();
 }
 
 function updateCompareButton() {
-  if (!compareBtn) return;
-  const comparing = compareWanted() && selectedImages().length === 2;
-  const waiting = compareWanted() && selectedImages().length < 2;
-  compareBtn.setAttribute("aria-pressed", compareWanted() ? "true" : "false");
-  if (comparing) compareBtn.textContent = "한 장으로 보기";
-  else if (waiting) compareBtn.textContent = "비교할 사진을 클릭하세요";
-  else compareBtn.textContent = "비교해서 관찰하기";
-  if (!compareHint) return;
-  if (!compareWanted()) {
-    compareHint.hidden = true;
-    compareHint.textContent = "";
-  } else if (waiting) {
-    compareHint.hidden = false;
-    compareHint.textContent = "비교할 사진을 하나 더 누르세요. 고른 사진을 다시 누르면 빠집니다.";
-  } else {
-    compareHint.hidden = false;
-    compareHint.textContent = "고른 사진을 다시 누르면 빠집니다. 다른 사진을 누르면 그 사진부터 다시 고릅니다.";
-  }
+  const compareOn = compareWanted();
+  if (observeSingleBtn) observeSingleBtn.setAttribute("aria-pressed", compareOn ? "false" : "true");
+  if (observeCompareBtn) observeCompareBtn.setAttribute("aria-pressed", compareOn ? "true" : "false");
 }
 
-if (compareBtn) {
-  compareBtn.addEventListener("click", () => {
-    if (compareWanted()) {
-      setCompareWanted(false);
-    } else {
-      setCompareWanted(true);
-      saveSelectedImages(selectedImages().slice(0, 1));
-    }
-    showSelectedImage();
-  });
+function setObserveMode(compare) {
+  if (compare) {
+    setCompareWanted(true);
+    saveSelectedImages(selectedImages().slice(0, 1));
+  } else {
+    setCompareWanted(false);
+    saveSelectedImages(selectedImages().slice(0, 1));
+  }
+  showSelectedImage();
+}
+
+if (observeSingleBtn) {
+  observeSingleBtn.addEventListener("click", () => setObserveMode(false));
+}
+if (observeCompareBtn) {
+  observeCompareBtn.addEventListener("click", () => setObserveMode(true));
 }
 
 function renderImagePicker() {
   const list = modeImages();
   const picked = selectedImages();
+  const compareOn = compareWanted();
   imagePicker.innerHTML = "";
   imagePicker.hidden = list.length < 2;
   list.forEach((name, i) => {
     const btn = document.createElement("button");
-    const on = picked.includes(name);
+    const pickIndex = picked.indexOf(name);
+    const on = pickIndex >= 0;
     btn.type = "button";
     btn.className = "image-thumb" + (on ? " selected" : "");
+    if (compareOn && on) btn.classList.add(`pick-slot-${pickIndex + 1}`);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
-    btn.title = `사진 ${i + 1}`;
+    if (compareOn && !on && picked.length === 0) btn.title = `첫 번째 사진으로 선택 · 사진 ${i + 1}`;
+    else if (compareOn && !on && picked.length === 1) btn.title = `두 번째 사진으로 선택 · 사진 ${i + 1}`;
+    else btn.title = `사진 ${i + 1}`;
     const img = document.createElement("img");
     img.src = `images/${name}`;
     img.alt = `사진 ${i + 1}`;
@@ -340,18 +434,33 @@ function renderImagePicker() {
     badge.textContent = String(i + 1);
     btn.appendChild(img);
     btn.appendChild(badge);
+    if (compareOn && on) {
+      const slot = document.createElement("span");
+      slot.className = "image-thumb-slot";
+      slot.textContent = pickIndex === 0 ? "1번째" : "2번째";
+      btn.appendChild(slot);
+    }
     btn.addEventListener("click", () => {
       const cur = selectedImages();
       let next;
       if (!compareWanted()) {
         next = [name];
+      } else if (cur.length === 2 && cur.includes(name)) {
+        // 두 장이 선택된 상태에서 고른 사진(앞·뒷번호 무관)을 다시 누르면
+        // 그 사진을 1번째로 두고 2번째를 다시 고른다.
+        next = [name];
       } else if (cur.includes(name)) {
-        next = cur.filter((item) => item !== name);
-        if (!next.length) next = [name];
+        // 한 장만 고른 상태에서 같은 사진을 다시 누르면 1번째로 유지
+        next = [name];
       } else if (cur.length < 2) {
         next = cur.concat(name);
       } else {
+        // 두 장이 선택된 상태에서 다른 사진을 누르면 그 사진부터 1번째로 다시 고른다.
         next = [name];
+      }
+      if (!next.length) {
+        const fallback = modeImages()[0];
+        next = fallback ? [fallback] : [];
       }
       saveSelectedImages(next);
       showSelectedImage();
@@ -366,10 +475,15 @@ function photoLabel(name, mode = currentMode) {
   return idx >= 0 ? `사진 ${idx + 1}` : "";
 }
 
+function photoNumberForFile(name) {
+  const idx = modeImages().indexOf(name);
+  return idx >= 0 ? idx + 1 : null;
+}
+window.photoNumberForFile = photoNumberForFile;
+
 function sentencePhotoLabel(sentence, mode = currentMode) {
   if (sentence.image && sentence.imageRight) {
-    const ordered = orderedImages([sentence.image, sentence.imageRight], mode);
-    return `${photoLabel(ordered[0], mode)} · ${photoLabel(ordered[1], mode)}`;
+    return `${photoLabel(sentence.image, mode)} · ${photoLabel(sentence.imageRight, mode)}`;
   }
   return photoLabel(sentence.image, mode);
 }
@@ -391,9 +505,13 @@ function sentencesForSelection(list = loadSentences()) {
 
 let sentenceDrafts = {};
 let draftSelection = "";
+let chatDrafts = {};
+let chatDraftSelection = "";
 
 function selectionDraftId() {
-  return `${currentMode}:${selectedImages().join("|")}`;
+  const picked = selectedImages();
+  const key = picked.length >= 2 ? pairKey(picked) : picked[0] || "none";
+  return `${currentMode}:${key}`;
 }
 
 function syncSentenceDraft() {
@@ -404,6 +522,16 @@ function syncSentenceDraft() {
     sentenceInput.value = sentenceDrafts[id] || "";
   }
   draftSelection = id;
+}
+
+function syncChatDraft() {
+  if (!chatInput) return;
+  const id = selectionDraftId();
+  if (chatDraftSelection && chatDraftSelection !== id) {
+    chatDrafts[chatDraftSelection] = chatInput.value;
+    chatInput.value = chatDrafts[id] || "";
+  }
+  chatDraftSelection = id;
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +611,8 @@ function renderChat() {
   chatLog.innerHTML = "";
   const spec = MODES[currentMode];
   if (!spec.chat) return;
+  syncChatDraft();
+  if (chatScope) chatScope.textContent = selectionTitle();
   if (spec.greeting) addMessage(spec.greeting, "ai", { store: false });
   loadChat().forEach((m) => addMessage(m.text, m.type, { store: false }));
 }
@@ -560,7 +690,12 @@ function applyMode() {
     startMsg.textContent = "먼저 학번을 입력하고 확인을 눌러주세요.";
   } else if (status === "locked") {
     startBtn.disabled = true;
-    startMsg.textContent = "탭 1과 탭 2를 모두 마치면 열려요.";
+    startMsg.textContent = currentMode === "offload"
+      ? "탭 1 사전 과제를 마치면 열려요."
+      : "탭 1과 탭 2를 모두 마치면 열려요.";
+  } else if (currentMode === "offload" && !studyGroup) {
+    startBtn.disabled = true;
+    startMsg.textContent = "안내받은 집단 링크(?group=A 또는 ?group=B)로 들어와 주세요.";
   }
   startBtn.textContent =
     info?.timed === false
@@ -656,37 +791,62 @@ function renderMarkdown(text) {
     .join("");
 }
 
-function addMessage(text, type, { store = true } = {}) {
-  const div = document.createElement("div");
-  div.className = `msg msg-${type}`;
-  if (type === "ai") {
-    div.innerHTML = renderMarkdown(text);
-  } else {
-    div.textContent = text;
+function addMessage(text, type, { store = true, mode = currentMode, threadKey = photoThreadKey(mode) } = {}) {
+  let div = null;
+  if (isChatThreadOnScreen(mode, threadKey)) {
+    div = document.createElement("div");
+    div.className = `msg msg-${type}`;
+    if (type === "ai") {
+      div.innerHTML = renderMarkdown(text);
+    } else {
+      div.textContent = text;
+    }
+    chatLog.appendChild(div);
+    chatLog.scrollTop = chatLog.scrollHeight;
   }
-  chatLog.appendChild(div);
-  chatLog.scrollTop = chatLog.scrollHeight;
-  if (store && (type === "ai" || type === "user")) pushChat({ text, type });
+  if (store && (type === "ai" || type === "user")) pushChat({ text, type }, mode, threadKey);
   return div;
 }
 
 async function sendToAI(text, kind) {
   const studentId = getStudentId();
   if (!studentId || chatBusy) return;
+  // 응답이 오기 전에 사진을 바꿔도, 보낸 사진 스레드에만 답이 붙도록 고정한다.
+  const mode = currentMode;
+  const threadKey = photoThreadKey(mode);
+  const images = selectedImages(mode);
+  const image = images[0] || null;
+  const llmSessionId = chatSessionId(mode, threadKey);
   chatBusy = true;
   sendBtn.disabled = true;
   sentenceAddBtn.disabled = true;
-  const loadingEl = addMessage("AI가 답변을 준비 중입니다...", "loading", { store: false });
+  const loadingEl = addMessage("AI가 답변을 준비 중입니다...", "loading", {
+    store: false,
+    mode,
+    threadKey,
+  });
   try {
     const data = await api("/api/chat", {
       method: "POST",
-      body: { message: text, studentId, sessionId, mode: currentMode, kind, image: selectedImage(), images: selectedImages() },
+      body: {
+        message: text,
+        studentId,
+        sessionId: llmSessionId,
+        mode,
+        kind,
+        image,
+        images,
+      },
     });
-    loadingEl.remove();
-    addMessage(data.answer, "ai");
+    loadingEl?.remove();
+    addMessage(data.answer, "ai", { mode, threadKey });
   } catch (err) {
-    loadingEl.remove();
-    addMessage(err.message || "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.", "error", { store: false });
+    loadingEl?.remove();
+    addMessage(err.message || "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.", "error", {
+      store: false,
+      mode,
+      threadKey,
+    });
   } finally {
     chatBusy = false;
     const editable = modeInfo(currentMode)?.status === "in_progress";
@@ -794,8 +954,8 @@ async function submitFinal(auto = false) {
 }
 
 function nextModeHint(mode) {
-  if (mode === "assess") return "탭 1을 제출했어요. 이제 탭 2로 이동해 보세요.";
-  if (mode === "offload") return "탭 2를 제출했어요. 이제 탭 3으로 이동해 보세요.";
+  if (mode === "assess") return "사전 과제를 제출했어요. 이제 탭 2로 이동해 보세요.";
+  if (mode === "offload") return "탭 2를 제출했어요. 이제 사후 과제로 이동해 보세요.";
   return "모든 탭을 마쳤어요. 수고했습니다!";
 }
 
@@ -808,14 +968,22 @@ const measureToggle = $("measure-toggle");
 const measureToolbarWrap = $("measure-toolbar-wrap");
 measureToggle?.addEventListener("click", () => {
   const open = measureToggle.getAttribute("aria-expanded") === "true";
-  measureToggle.setAttribute("aria-expanded", open ? "false" : "true");
-  if (measureToolbarWrap) measureToolbarWrap.hidden = open;
+  const nextOpen = !open;
+  measureToggle.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+  if (measureToolbarWrap) {
+    measureToolbarWrap.classList.toggle("is-collapsed", !nextOpen);
+    measureToolbarWrap.setAttribute("aria-hidden", nextOpen ? "false" : "true");
+  }
+  if (!nextOpen && typeof window.releaseMeasureTool === "function") {
+    window.releaseMeasureTool();
+  }
 });
 
 // ---------------------------------------------------------------------------
 // 시작
 // ---------------------------------------------------------------------------
 updateStudentIdStatus();
+applyStudyGroup(studyGroup);
 refresh().then(() => {
   // 서버 상태를 알기 전에 마지막으로 보던 탭이 잠겨 있으면 첫 탭으로 돌린다.
   if (modeInfo(currentMode)?.status === "locked") {

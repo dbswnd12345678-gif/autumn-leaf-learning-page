@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 CREATE INDEX IF NOT EXISTS idx_tool_calls_student ON tool_calls(student_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_name ON tool_calls(tool_name);
 
+-- 학번이 처음 들어온 집단. A는 대조군(생성형 AI), B는 실험군(AI Agent). 한 번 정하면 바꾸지 않는다.
+CREATE TABLE IF NOT EXISTS study_groups (
+    student_id TEXT PRIMARY KEY,
+    group_code TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 -- 3모드 개편: 학생 x 모드(assess/offload/support)마다 10분 세션 한 줄.
 -- 시작·마감 시각은 서버 기준이라 새로고침해도 남은 시간이 이어진다.
 CREATE TABLE IF NOT EXISTS mode_sessions (
@@ -145,6 +152,38 @@ def init_db() -> None:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def get_study_group(student_id: str) -> Optional[str]:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT group_code FROM study_groups WHERE student_id = ?",
+            (student_id,),
+        ).fetchone()
+        return str(row["group_code"]) if row else None
+    finally:
+        conn.close()
+
+
+def assign_study_group(student_id: str, group_code: str) -> str:
+    """이미 배정된 학번이면 저장된 집단을 그대로 돌려준다."""
+    existing = get_study_group(student_id)
+    if existing:
+        return existing
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO study_groups (student_id, group_code, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (student_id, group_code, now_iso()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return group_code
 
 
 def next_turn_index(conn: sqlite3.Connection, student_id: str) -> int:

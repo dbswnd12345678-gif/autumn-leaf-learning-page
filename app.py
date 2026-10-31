@@ -3,14 +3,14 @@
 
 학습 페이지는 3개 탭(모드)으로 나뉜다. 각 모드는 AnythingLLM 워크스페이스가 따로 있다.
 
-  assess  (탭 1) 관찰력 진단   AI 없이 10분 동안 관찰 문장을 쓰고 최종 제출한다.
-  offload (탭 2) 오프로딩 진단  AI에게 자유롭게 묻고 요청하며 관찰 문장을 쓰고 제출한다.
-  support (탭 3) AI Agent 지원  앞선 진단으로 정한 지원 수준에 맞춰 Agent가 돕는다.
+  assess  (탭 1) 사전 과제     AI 없이 관찰 문장을 쓰고 최종 제출한다.
+  offload (탭 2) AI 과제       대조군(A)은 생성형 AI, 실험군(B)은 AI Agent와 관찰한다.
+  support (탭 3) 사후 과제     AI 없이 관찰 문장을 쓰고 최종 제출한다.
 
 하는 일:
   - public/ 아래 학습 페이지(HTML/CSS/JS, 단풍 사진)를 제공한다.
   - /api/session/*   모드별 10분 세션(서버 기준 시작·마감 시각)을 관리한다.
-  - /api/chat        탭 2·3의 대화를 모드에 맞는 AnythingLLM 워크스페이스로 보낸다.
+  - /api/chat        탭 2 대화를 집단에 맞는 AnythingLLM 워크스페이스로 보낸다.
   - /api/submit      최종 관찰 문장을 저장하고 진단(OQ_A, 다양도, 오프로딩 단계)을 계산한다.
   - /api/tools/*     AnythingLLM Agent Flow가 부르는 조회 주소다. 호출마다 tool_calls에 기록한다.
   - 대화와 진단은 학번(studentId) 기준으로 SQLite에 쌓인다.
@@ -57,7 +57,10 @@ WORKSPACE_SLUGS = {
     "offload": os.environ.get("WS_SLUG_OFFLOAD", ""),
     "support": os.environ.get("WS_SLUG_SUPPORT", ""),
     "judge": os.environ.get("WS_SLUG_JUDGE", ""),
+    # 대조군(A) 탭 2. Agent 없이 학생의 말만 보내는 생성형 AI 워크스페이스.
+    "control": os.environ.get("WS_SLUG_CONTROL", ""),
 }
+STUDY_GROUPS = ("A", "B")
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 # AnythingLLM Agent Flow의 "API Call"이 /api/tools/*를 호출할 때 X-Tool-Key 헤더로 보내는 비밀 키.
 TOOL_API_KEY = os.environ.get("TOOL_API_KEY", "")
@@ -74,7 +77,7 @@ SESSION_GRACE_SECONDS = int(os.environ.get("SESSION_GRACE_SECONDS", "20"))
 UNLOCK_ALL = os.environ.get("UNLOCK_ALL", "") == "1"
 
 MODES = ("assess", "offload", "support")
-MODE_LABELS = {"assess": "관찰력 진단", "offload": "오프로딩 진단", "support": "AI Agent 지원"}
+MODE_LABELS = {"assess": "사전 과제", "offload": "AI 활용 과제", "support": "사후 과제"}
 
 BASE_DIR = Path(__file__).parent
 PUBLIC_DIR = BASE_DIR / "public"
@@ -98,9 +101,10 @@ MODE_IMAGES = {
 
 if not (ANYTHINGLLM_BASE_URL and ANYTHINGLLM_API_KEY):
     print("[경고] ANYTHINGLLM_BASE_URL / ANYTHINGLLM_API_KEY 가 설정되지 않았습니다.")
-for _mode in ("offload", "support"):
-    if not (WORKSPACE_SLUGS[_mode] or LEGACY_WORKSPACE_SLUG):
-        print(f"[경고] WS_SLUG_{_mode.upper()} 가 설정되지 않아 {_mode} 모드 대화를 쓸 수 없습니다.")
+if not WORKSPACE_SLUGS["control"]:
+    print("[경고] WS_SLUG_CONTROL 이 없어 대조군(A) 탭 2 대화를 쓸 수 없습니다.")
+if not (WORKSPACE_SLUGS["support"] or LEGACY_WORKSPACE_SLUG):
+    print("[경고] WS_SLUG_SUPPORT 가 없어 실험군(B) 탭 2 대화를 쓸 수 없습니다.")
 if not ADMIN_KEY:
     print("[경고] ADMIN_KEY 환경변수가 설정되지 않았습니다. /api/admin/* 를 쓸 수 없습니다.")
 
@@ -260,11 +264,36 @@ async def call_anythingllm(
 def timer_enabled() -> bool:
     return SESSION_SECONDS > 0
 
-def is_support_unlocked(student_id: str) -> bool:
-    """탭 3은 탭 1(관찰력)과 탭 2(오프로딩) 진단이 모두 있어야 열린다."""
-    if UNLOCK_ALL:
+def normalize_group(value: str) -> str:
+    code = str(value or "").strip().upper()
+    return code if code in STUDY_GROUPS else ""
+
+
+def resolve_study_group(student_id: str, requested: str) -> tuple[str, bool]:
+    """학번에 집단을 고정한다. 이미 있으면 그 값을 유지하고, 요청과 다르면 mismatch를 돌려준다."""
+    saved = db.get_study_group(student_id)
+    code = normalize_group(requested)
+    if saved:
+        return saved, bool(code and code != saved)
+    if not code:
+        return "", False
+    return db.assign_study_group(student_id, code), False
+
+
+def session_submitted(student_id: str, mode: str) -> bool:
+    session = db.get_session(student_id, mode)
+    return bool(session and session.get("submitted_at"))
+
+
+def is_mode_unlocked(student_id: str, mode: str) -> bool:
+    """탭 2는 사전 과제 제출 후, 탭 3은 사전 과제와 탭 2를 모두 제출한 뒤에 열린다."""
+    if UNLOCK_ALL or mode == "assess":
         return True
-    return bool(db.get_diagnosis(student_id, "assess") and db.get_diagnosis(student_id, "offload"))
+    if not session_submitted(student_id, "assess"):
+        return False
+    if mode == "offload":
+        return True
+    return session_submitted(student_id, "offload")
 
 
 def remaining_seconds(session: dict[str, Any]) -> int:
@@ -277,7 +306,7 @@ def mode_status(student_id: str, mode: str) -> dict[str, Any]:
     remaining = SESSION_SECONDS if timer_enabled() else UNTIMED_REMAINING_SECONDS
     submitted = False
     started_at = None
-    if mode == "support" and not session and not is_support_unlocked(student_id):
+    if not session and not is_mode_unlocked(student_id, mode):
         status = "locked"
     if session:
         submitted = bool(session.get("submitted_at"))
@@ -322,12 +351,15 @@ def validate_mode(mode: str) -> str:
 
 
 @app.get("/api/session/status")
-def session_status(studentId: str = Query(...)):
+def session_status(studentId: str = Query(...), group: str = Query("")):
     student_id = sanitize_id(studentId)
     if not student_id:
         raise HTTPException(400, "studentId가 필요합니다.")
+    study_group, group_mismatch = resolve_study_group(student_id, group)
     return {
         "studentId": student_id,
+        "group": study_group,
+        "groupMismatch": group_mismatch,
         "durationSeconds": SESSION_SECONDS if timer_enabled() else 0,
         "timed": timer_enabled(),
         "modes": {mode: mode_status(student_id, mode) for mode in MODES},
@@ -345,7 +377,11 @@ def session_start(req: SessionStartRequest):
     if not student_id:
         raise HTTPException(400, "studentId가 필요합니다.")
     mode = validate_mode(req.mode)
-    if mode == "support" and not is_support_unlocked(student_id):
+    if mode == "offload" and not db.get_study_group(student_id):
+        raise HTTPException(403, "안내받은 집단 링크로 들어와 주세요.")
+    if not is_mode_unlocked(student_id, mode):
+        if mode == "offload":
+            raise HTTPException(403, "탭 1 사전 과제를 먼저 마쳐야 탭 2를 시작할 수 있습니다.")
         raise HTTPException(403, "탭 1과 탭 2를 먼저 마쳐야 탭 3을 시작할 수 있습니다.")
     now = utc_now()
     db.start_session(
@@ -411,14 +447,19 @@ async def chat(req: ChatRequest):
     if not session_id:
         raise HTTPException(400, "sessionId가 필요합니다.")
     mode = validate_mode(req.mode)
-    if mode == "assess":
-        raise HTTPException(400, "관찰력 진단(탭 1)에서는 AI를 쓰지 않습니다.")
+    if mode != "offload":
+        raise HTTPException(400, "이 탭에서는 AI를 쓰지 않습니다.")
     input_kind = "sentence" if req.kind == "sentence" else "question"
+    study_group = db.get_study_group(student_id)
+    if study_group not in STUDY_GROUPS:
+        raise HTTPException(403, "안내받은 집단 링크로 들어와 주세요.")
 
     session = require_active_session(student_id, mode)
-    slug = workspace_slug(mode)
+    use_agent = study_group == "B"
+    slug = workspace_slug("support" if use_agent else "control")
     if not slug:
-        raise HTTPException(500, "이 모드의 AnythingLLM 워크스페이스 slug가 설정되지 않았습니다.")
+        missing = "WS_SLUG_SUPPORT" if use_agent else "WS_SLUG_CONTROL"
+        raise HTTPException(500, f"{missing} 워크스페이스가 설정되지 않았습니다.")
 
     # 학생이 고른 사진을 AI에게 보여 준다. 왼쪽부터 최대 두 장이고, 이 탭의 사진만 받는다.
     mode_images = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
@@ -441,11 +482,11 @@ async def chat(req: ChatRequest):
 
     support_level: Optional[int] = None
     last_tool_id = 0
-    if mode == "support":
+    if use_agent:
         agent_message = build_support_message(student_id, message, input_kind, images)
         last_tool_id = db.get_max_tool_call_id(student_id)
     else:
-        # 탭 2는 @agent 없이 학생의 말을 보낸다. 사진이 두 장이면 왼쪽·오른쪽 번호만 앞에 붙인다.
+        # 대조군은 @agent 없이 학생의 말만 보낸다. 사진이 두 장이면 왼쪽·오른쪽 번호만 앞에 붙인다.
         agent_message = message
 
     answer = sanitize_answer(
@@ -456,7 +497,7 @@ async def chat(req: ChatRequest):
     tools_called: Optional[str] = None
     tool_skipped: Optional[bool] = None
     observation_types: Optional[str] = None
-    if mode == "support":
+    if use_agent:
         # 이번 턴에 진단 기록 조회와, 관찰 문장이면 유형 기록을 불렀는지 확인한다.
         # 유형 기록은 답변보다 먼저 실행되므로, 그 값을 지금 만드는 관찰 행에 붙인다.
         new_calls = db.get_tool_calls_after(student_id, last_tool_id)
@@ -578,7 +619,7 @@ async def run_judge(
 
 
 def mode_kind(mode: str) -> str:
-    return {"assess": "observation", "offload": "offloading", "support": "support_outcome"}[mode]
+    return {"assess": "observation", "offload": "offloading", "support": "observation"}[mode]
 
 
 @app.post("/api/submit")
@@ -619,11 +660,8 @@ async def submit(req: SubmitRequest, background: BackgroundTasks):
     elif mode == "offload":
         payload = diagnosis.score_offloading(turns, sentences, session.get("started_at"))
     else:
-        # 탭 3은 진단이 아니라 지원 후 관찰 결과를 기록한다.
+        # 탭 3 사후 과제는 AI 없이 제출한 관찰 문장만 남긴다.
         payload = diagnosis.unclassified_observation(sentences, MODE_IMAGES[mode])
-        payload["turnCount"] = len(turns)
-        payload["toolSkippedTurns"] = sum(1 for t in turns if t.get("tool_skipped"))
-        payload["supportLevels"] = sorted({t["support_level"] for t in turns if t.get("support_level")})
 
     # 탭 1은 제출 문장이 없으면 Agent가 분류할 문장이 없으므로 분류 전 기록만 남긴다.
     needs_judge = bool(judge_slug_for(mode)) and not (mode == "assess" and not sentences)
