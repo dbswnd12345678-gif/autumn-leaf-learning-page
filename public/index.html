@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>단풍현상 관찰 학습</title>
-<link rel="stylesheet" href="style.css?v=18" />
+<link rel="stylesheet" href="style.css?v=21" />
 </head>
 <body class="mode-assess">
   <header class="app-header">
@@ -90,6 +90,14 @@
       </div>
 
       <div class="work-area" id="work-area" hidden>
+        <div class="meta-check" id="meta-check" hidden>
+          <h3 id="meta-check-title"></h3>
+          <p id="meta-check-lead"></p>
+          <div class="meta-options" id="meta-options" role="group" aria-label="혼자 할 수 있는 관찰"></div>
+          <p class="meta-check-note">고르지 않은 것은 지금 혼자 하기 어렵다는 예상입니다. 하나도 고르지 않고 시작할 수도 있어요.</p>
+          <button type="button" id="meta-check-start">이만큼 하고 관찰 시작</button>
+        </div>
+        <p class="meta-result" id="meta-result" hidden></p>
         <div class="chat-section" id="chat-section">
           <div class="chat-head">
             <h3>
@@ -123,7 +131,7 @@
     </section>
   </main>
 
-  <script src="script.js?v=26"></script>
+  <script src="script.js?v=34"></script>
   <script src="measure.js?v=7"></script>
 </body>
 </html>

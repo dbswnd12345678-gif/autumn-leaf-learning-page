@@ -65,7 +65,11 @@ CREATE TABLE IF NOT EXISTS study_groups (
     created_at TEXT NOT NULL
 );
 
--- 3모드 개편: 학생 x 모드(assess/offload/support)마다 10분 세션 한 줄.
+-- 학생 x 과제마다 세션 한 줄.
+-- mode는 워크스페이스 이름이 아니다.
+-- 탭 1은 pre_test, 탭 3은 post_test.
+-- 탭 2는 대조군 Gen_AI, 실험군 AI_Agent.
+-- expectations는 실험군이 사진마다 고른 예상 유형이다. 대조군은 NULL.
 -- 시작·마감 시각은 서버 기준이라 새로고침해도 남은 시간이 이어진다.
 CREATE TABLE IF NOT EXISTS mode_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,6 +81,7 @@ CREATE TABLE IF NOT EXISTS mode_sessions (
     auto_submitted INTEGER NOT NULL DEFAULT 0,
     images TEXT,
     sentences TEXT,
+    expectations TEXT,
     UNIQUE (student_id, mode)
 );
 
@@ -137,6 +142,175 @@ def backup_bytes() -> bytes:
             pass
 
 
+def stored_mode(mode: Optional[str], student_id: Optional[str] = None) -> Optional[str]:
+    """앱 안의 과제 키를 SQLite에 남기는 mode로 바꾼다.
+
+    탭 1·탭 3은 학생 과제용 워크스페이스가 따로 없으므로 pre_test, post_test로 기록한다.
+    탭 2는 대조군(A)이면 Gen_AI, 실험군(B)이면 AI_Agent로 기록한다.
+    """
+    if mode == "assess":
+        return "pre_test"
+    if mode == "support":
+        return "post_test"
+    if mode == "offload" and student_id:
+        group = get_study_group(student_id)
+        if group == "A":
+            return "Gen_AI"
+        if group == "B":
+            return "AI_Agent"
+    return mode
+
+
+def _sentence_images(item: Any) -> list[str]:
+    """문장에 붙은 사진. 1번째는 화면 왼쪽, 2번째는 화면 오른쪽이다."""
+    if not isinstance(item, dict):
+        return []
+    raw = item.get("images")
+    names: list[str] = []
+    if isinstance(raw, list):
+        names.extend(name for name in raw if isinstance(name, str) and name)
+    else:
+        for key in ("image", "imageRight"):
+            name = item.get(key)
+            if isinstance(name, str) and name:
+                names.append(name)
+    unique: list[str] = []
+    for name in names:
+        if name not in unique:
+            unique.append(name)
+        if len(unique) == 2:
+            break
+    return unique
+
+
+def _photo_numbers(item: dict[str, Any], images: list[str]) -> list[Any]:
+    raw = item.get("photoNumbers")
+    if isinstance(raw, list) and raw and "photoNumber" not in item and "photoNumberRight" not in item:
+        return raw[:2]
+    numbers: list[Any] = []
+    if item.get("photoNumber"):
+        numbers.append(item.get("photoNumber"))
+    if item.get("photoNumberRight"):
+        numbers.append(item.get("photoNumberRight"))
+    if numbers:
+        return numbers[:2]
+    return [None] * len(images)
+
+
+def _migrate_sentence(item: Any) -> Any:
+    if not isinstance(item, dict) or "text" not in item:
+        return item
+    images = _sentence_images(item)
+    migrated = {"text": item.get("text"), "t": item.get("t"), "images": images}
+    return migrated
+
+
+def _migrate_message(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    if "image" not in item and "imageRight" not in item and "photoNumberRight" not in item:
+        return item
+    images = _sentence_images(item)
+    numbers = [n for n in _photo_numbers(item, images) if n]
+    migrated = dict(item)
+    migrated.pop("image", None)
+    migrated.pop("imageRight", None)
+    migrated.pop("photoNumber", None)
+    migrated.pop("photoNumberRight", None)
+    migrated["images"] = images
+    migrated["photoNumbers"] = numbers
+    return migrated
+
+
+def _rename_mode(conn: sqlite3.Connection, table: str, old: str, new: str) -> None:
+    """student_id+mode 가 겹치면 그 줄은 건너뛴다."""
+    if table in ("mode_sessions", "diagnoses"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+               SET mode = ?
+             WHERE mode = ?
+               AND NOT EXISTS (
+                    SELECT 1 FROM {table} AS other
+                     WHERE other.student_id = {table}.student_id
+                       AND other.mode = ?
+               )
+            """,
+            (new, old, new),
+        )
+        return
+    conn.execute(f"UPDATE {table} SET mode = ? WHERE mode = ?", (new, old))
+
+
+def _rename_offload_by_group(conn: sqlite3.Connection, table: str, group_code: str, new_mode: str) -> None:
+    """탭 2의 offload 기록을 집단에 맞는 이름으로 바꾼다."""
+    group_filter = "student_id IN (SELECT student_id FROM study_groups WHERE group_code = ?)"
+    if table in ("mode_sessions", "diagnoses"):
+        conn.execute(
+            f"""
+            UPDATE {table}
+               SET mode = ?
+             WHERE mode = 'offload'
+               AND {group_filter}
+               AND NOT EXISTS (
+                    SELECT 1 FROM {table} AS other
+                     WHERE other.student_id = {table}.student_id
+                       AND other.mode = ?
+               )
+            """,
+            (new_mode, group_code, new_mode),
+        )
+        return
+    conn.execute(
+        f"UPDATE {table} SET mode = ? WHERE mode = 'offload' AND {group_filter}",
+        (new_mode, group_code),
+    )
+
+
+def _migrate_stored_records(conn: sqlite3.Connection) -> None:
+    _rename_mode(conn, "mode_sessions", "assess", "pre_test")
+    _rename_mode(conn, "mode_sessions", "support", "post_test")
+    _rename_mode(conn, "diagnoses", "assess", "pre_test")
+    _rename_mode(conn, "diagnoses", "support", "post_test")
+    _rename_mode(conn, "observations", "assess", "pre_test")
+    _rename_mode(conn, "observations", "support", "post_test")
+    for table in ("mode_sessions", "diagnoses", "observations"):
+        _rename_offload_by_group(conn, table, "A", "Gen_AI")
+        _rename_offload_by_group(conn, table, "B", "AI_Agent")
+
+    session_rows = conn.execute("SELECT id, sentences FROM mode_sessions").fetchall()
+    for row in session_rows:
+        try:
+            sentences = json.loads(row["sentences"] or "[]")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(sentences, list):
+            continue
+        migrated = [_migrate_sentence(item) for item in sentences]
+        if migrated != sentences:
+            conn.execute(
+                "UPDATE mode_sessions SET sentences = ? WHERE id = ?",
+                (json.dumps(migrated, ensure_ascii=False), row["id"]),
+            )
+
+    diagnosis_rows = conn.execute("SELECT id, payload FROM diagnoses").fetchall()
+    for row in diagnosis_rows:
+        try:
+            payload = json.loads(row["payload"] or "{}")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict) or not isinstance(payload.get("messages"), list):
+            continue
+        messages = [_migrate_message(item) for item in payload["messages"]]
+        if messages == payload["messages"]:
+            continue
+        payload["messages"] = messages
+        conn.execute(
+            "UPDATE diagnoses SET payload = ? WHERE id = ?",
+            (json.dumps(payload, ensure_ascii=False), row["id"]),
+        )
+
+
 def init_db() -> None:
     conn = get_connection()
     try:
@@ -145,6 +319,10 @@ def init_db() -> None:
         for name, col_type in _OBSERVATION_EXTRA_COLUMNS.items():
             if name not in existing:
                 conn.execute(f"ALTER TABLE observations ADD COLUMN {name} {col_type}")
+        _migrate_stored_records(conn)
+        session_columns = {r["name"] for r in conn.execute("PRAGMA table_info(mode_sessions)")}
+        if "expectations" not in session_columns:
+            conn.execute("ALTER TABLE mode_sessions ADD COLUMN expectations TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -218,6 +396,7 @@ def add_observation(
     conn = get_connection()
     try:
         turn_index = next_turn_index(conn, student_id)
+        mode = stored_mode(mode, student_id)
         cur = conn.execute(
             """
             INSERT INTO observations (
@@ -479,7 +658,7 @@ def get_mode_observations(student_id: str, mode: str) -> list[dict[str, Any]]:
     try:
         rows = conn.execute(
             "SELECT * FROM observations WHERE student_id = ? AND mode = ? ORDER BY id ASC",
-            (student_id, mode),
+            (student_id, stored_mode(mode, student_id)),
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
     finally:
@@ -497,6 +676,15 @@ def _session_to_dict(row: sqlite3.Row) -> dict[str, Any]:
             d[key] = json.loads(d.get(key) or "[]")
         except (json.JSONDecodeError, TypeError):
             d[key] = []
+    raw_expectations = d.get("expectations")
+    if raw_expectations in (None, ""):
+        d["expectations"] = None
+    else:
+        try:
+            parsed = json.loads(raw_expectations)
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        d["expectations"] = parsed if isinstance(parsed, list) else None
     d["auto_submitted"] = bool(d.get("auto_submitted"))
     return d
 
@@ -506,7 +694,7 @@ def get_session(student_id: str, mode: str) -> Optional[dict[str, Any]]:
     try:
         row = conn.execute(
             "SELECT * FROM mode_sessions WHERE student_id = ? AND mode = ?",
-            (student_id, mode),
+            (student_id, stored_mode(mode, student_id)),
         ).fetchone()
         return _session_to_dict(row) if row else None
     finally:
@@ -542,7 +730,7 @@ def start_session(
                 (student_id, mode, started_at, deadline_at, images, sentences)
             VALUES (?, ?, ?, ?, ?, '[]')
             """,
-            (student_id, mode, started_at, deadline_at, json.dumps(images, ensure_ascii=False)),
+            (student_id, stored_mode(mode, student_id), started_at, deadline_at, json.dumps(images, ensure_ascii=False)),
         )
         conn.commit()
     finally:
@@ -551,23 +739,34 @@ def start_session(
 
 
 def submit_session(
-    student_id: str, mode: str, sentences: list[dict[str, Any]], auto: bool
+    student_id: str,
+    mode: str,
+    sentences: list[dict[str, Any]],
+    auto: bool,
+    expectations: Optional[list[dict[str, Any]]] = None,
 ) -> bool:
-    """처음 한 번만 제출로 인정한다. 이미 제출한 세션이면 False."""
+    """처음 한 번만 제출로 인정한다. 이미 제출한 세션이면 False.
+
+    expectations는 실험군이 사진마다 관찰 전에 고른 유형이다. 대조군은 None.
+    """
     conn = get_connection()
     try:
+        stored_expectations = (
+            None if expectations is None else json.dumps(expectations, ensure_ascii=False)
+        )
         cur = conn.execute(
             """
             UPDATE mode_sessions
-               SET submitted_at = ?, auto_submitted = ?, sentences = ?
+               SET submitted_at = ?, auto_submitted = ?, sentences = ?, expectations = ?
              WHERE student_id = ? AND mode = ? AND submitted_at IS NULL
             """,
             (
                 now_iso(),
                 1 if auto else 0,
                 json.dumps(sentences, ensure_ascii=False),
+                stored_expectations,
                 student_id,
-                mode,
+                stored_mode(mode, student_id),
             ),
         )
         conn.commit()
@@ -592,7 +791,7 @@ def save_diagnosis(student_id: str, mode: str, kind: str, payload: dict[str, Any
                 created_at = excluded.created_at,
                 payload = excluded.payload
             """,
-            (student_id, mode, kind, now_iso(), json.dumps(payload, ensure_ascii=False)),
+            (student_id, stored_mode(mode, student_id), kind, now_iso(), json.dumps(payload, ensure_ascii=False)),
         )
         conn.commit()
     finally:
@@ -613,7 +812,7 @@ def get_diagnosis(student_id: str, mode: str) -> Optional[dict[str, Any]]:
     try:
         row = conn.execute(
             "SELECT * FROM diagnoses WHERE student_id = ? AND mode = ?",
-            (student_id, mode),
+            (student_id, stored_mode(mode, student_id)),
         ).fetchone()
         return _diagnosis_to_dict(row) if row else None
     finally:

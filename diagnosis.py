@@ -42,49 +42,65 @@ def reload_knowledge() -> None:
 # 입력 정리
 # ---------------------------------------------------------------------------
 
-def normalize_sentences(raw: list[Any]) -> list[dict[str, Any]]:
-    """제출된 문장 목록을 [{text, t, image}] 형태로 맞춘다.
+def sentence_images(item: Any) -> list[str]:
+    """문장에 붙은 사진 파일. images[0]은 1번째(화면 왼쪽), images[1]은 2번째(화면 오른쪽).
 
-    t는 시작 후 경과 초(없으면 None), image는 학생이 그 문장을 쓸 때 보던 사진 파일 이름(없으면 None).
-    image가 이 탭의 사진인지는 호출하는 쪽(app.py)에서 확인한다.
+    예전 기록의 image, imageRight도 같은 순서로 읽는다.
+    """
+    if not isinstance(item, dict):
+        return []
+    raw = item.get("images")
+    names: list[str] = []
+    if isinstance(raw, list):
+        names.extend(name for name in raw if isinstance(name, str) and name)
+    else:
+        for key in ("image", "imageRight"):
+            name = item.get(key)
+            if isinstance(name, str) and name:
+                names.append(name)
+    unique: list[str] = []
+    for name in names:
+        if name not in unique:
+            unique.append(name)
+        if len(unique) == 2:
+            break
+    return unique
+
+
+def normalize_sentences(raw: list[Any]) -> list[dict[str, Any]]:
+    """제출된 문장 목록을 [{text, t, images}] 형태로 맞춘다.
+
+    t는 시작 후 경과 초(없으면 None). images는 그 문장을 쓸 때 보던 사진이다.
+    사진 1장이면 한 개, 사진 2장 비교면 1번째와 2번째 순서로 두 개다.
+    이 탭의 사진인지는 호출하는 쪽(app.py)에서 확인한다.
     """
     result: list[dict[str, Any]] = []
     for item in raw or []:
-        image = None
-        image_right = None
         if isinstance(item, str):
-            text, t = item, None
+            text, t, images = item, None, []
         elif isinstance(item, dict):
-            text, t = item.get("text", ""), item.get("t")
-            image = item.get("image")
-            image_right = item.get("imageRight")
+            text, t, images = item.get("text", ""), item.get("t"), sentence_images(item)
         else:
             continue
         text = str(text or "").strip()
         if not text:
             continue
-        right = image_right if isinstance(image_right, str) else None
-        left = image if isinstance(image, str) else None
-        if right and right == left:
-            right = None
         result.append(
             {
                 "text": text[:500],
                 "t": t if isinstance(t, (int, float)) else None,
-                "image": left,
-                "imageRight": right,
+                "images": images,
             }
         )
-    return result[:60]
+    return result[:100]
 
 
 def images_used(sentences: list[dict[str, Any]]) -> list[str]:
     """문장에 적힌 사진 파일 이름을 처음 나온 순서대로, 중복 없이 돌려준다."""
     seen: list[str] = []
     for s in sentences:
-        for key in ("image", "imageRight"):
-            name = s.get(key)
-            if name and name not in seen:
+        for name in sentence_images(s):
+            if name not in seen:
                 seen.append(name)
     return seen
 
@@ -339,10 +355,12 @@ def unclassified_observation(
         {
             "text": s["text"],
             "t": s.get("t"),
-            "image": s.get("image"),
-            "imageRight": s.get("imageRight"),
-            "photoNumber": photo_number(s.get("image"), ordered),
-            "photoNumberRight": photo_number(s.get("imageRight"), ordered),
+            "images": list(s.get("images") or []),
+            "photoNumbers": [
+                n
+                for n in (photo_number(name, ordered) for name in (s.get("images") or []))
+                if n
+            ],
             "photoMatch": None,
             "le": None,
             "units": [],
@@ -733,19 +751,29 @@ def quality_scaffold(assess_payload: Optional[dict[str, Any]]) -> dict[str, Any]
     }
 
 
-def support_photo_notes(image_names: Optional[list[str]] = None) -> dict[str, Any]:
-    """탭 3 사진 메모. image_names가 있으면 그 파일만, 없으면 support 사진 전체를 돌린다."""
-    data = load_knowledge("support_photos")
+def _photo_notes(knowledge_name: str, image_names: Optional[list[str]] = None) -> dict[str, Any]:
+    """knowledge 사진 기록. image_names가 None이면 파일 전체, 목록이면 그 파일명만."""
+    data = load_knowledge(knowledge_name)
     photos = data.get("photos") or {}
-    if image_names:
-        selected = {name: photos[name] for name in image_names if name in photos}
-    else:
+    if image_names is None:
         selected = dict(photos)
+    else:
+        selected = {name: photos[name] for name in image_names if name in photos}
     return {
         "version": data.get("version"),
         "photos": selected,
         "howToUse": data.get("howToUse") or [],
     }
+
+
+def support_photo_notes(image_names: Optional[list[str]] = None) -> dict[str, Any]:
+    """사후 과제 사진 메모. image_names가 있으면 그 파일만, 없으면 사후 사진 전체를 돌린다."""
+    return _photo_notes("support_photos", image_names)
+
+
+def offload_photo_notes(image_names: Optional[list[str]] = None) -> dict[str, Any]:
+    """탭 2 사진 메모. image_names가 있으면 그 파일만, 없으면 탭 2 사진 전체를 돌린다."""
+    return _photo_notes("offload_photos", image_names)
 
 
 def offloading_support(stage: Optional[int]) -> Optional[dict[str, Any]]:
@@ -800,7 +828,7 @@ def support_sentence_history(rows: list[dict[str, Any]]) -> dict[str, Any]:
     sentences = []
     used: set[str] = set()
     for row in rows:
-        if row.get("mode") != "support":
+        if row.get("mode") not in ("support", "post_test"):
             continue
         types = row.get("observation_types")
         if isinstance(types, str):
@@ -945,11 +973,11 @@ def build_observation_agent_message(
     attached = list(catalog if attached_images is None else attached_images)
 
     def label(s: dict[str, Any]) -> str:
-        left = photo_number(s.get("image"), catalog)
-        right = photo_number(s.get("imageRight"), catalog)
-        if left and right:
-            return f"[왼쪽 사진{left}, 오른쪽 사진{right}] "
-        return f"[사진{left}] " if left else ""
+        numbers = [photo_number(name, catalog) for name in sentence_images(s)]
+        numbers = [n for n in numbers if n]
+        if len(numbers) >= 2:
+            return f"[왼쪽 사진{numbers[0]}, 오른쪽 사진{numbers[1]}] "
+        return f"[사진{numbers[0]}] " if numbers else ""
 
     numbered = (
         "\n".join(f"{i + 1}. {label(s)}{s['text']}" for i, s in enumerate(sentences))
@@ -961,7 +989,7 @@ def build_observation_agent_message(
         if name in catalog
     ]
     pair_note = ""
-    if any(s.get("imageRight") for s in sentences):
+    if any(len(sentence_images(s)) >= 2 for s in sentences):
         pair_note = (
             " 왼쪽 사진과 오른쪽 사진이 함께 적힌 문장은 그 두 장을 나란히 본 관찰입니다. "
             "1번째와 첫번째는 왼쪽 사진, 2번째와 두번째는 오른쪽 사진입니다."

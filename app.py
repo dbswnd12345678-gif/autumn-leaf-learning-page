@@ -11,7 +11,7 @@
   - public/ 아래 학습 페이지(HTML/CSS/JS, 단풍 사진)를 제공한다.
   - /api/session/*   모드별 10분 세션(서버 기준 시작·마감 시각)을 관리한다.
   - /api/chat        탭 2 대화를 집단에 맞는 AnythingLLM 워크스페이스로 보낸다.
-  - /api/submit      최종 관찰 문장을 저장하고 진단(OQ_A, 다양도, 오프로딩 단계)을 계산한다.
+  - /api/submit      최종 관찰 문장을 mode_sessions에 저장한다. 진단 표는 만들지 않는다.
   - /api/tools/*     AnythingLLM Agent Flow가 부르는 조회 주소다. 호출마다 tool_calls에 기록한다.
   - 대화와 진단은 학번(studentId) 기준으로 SQLite에 쌓인다.
 """
@@ -36,7 +36,7 @@ if sys.platform == "win32":
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -405,6 +405,53 @@ def student_levels(student_id: str) -> tuple[None, Optional[int]]:
     return None, off_stage
 
 
+def known_observation_block(observations: list[str]) -> str:
+    """학생이 이미 적어 둔 관찰 문장. 이번 질문과 분리해서 AI가 읽게 한다."""
+    if not observations:
+        return ""
+    numbered = "\n".join(f"{i}. {text}" for i, text in enumerate(observations, 1))
+    return (
+        "[이미 적은 관찰 문장]\n"
+        "아래는 학생이 관찰 문장 칸에 적어 둔 내용이다. "
+        "이번 턴에 새로 말한 것이 아니므로 이 목록에는 답하지 않는다. "
+        "학생이 이번 말에서 이 문장을 언급하거나 확인을 구할 때만 참고한다.\n"
+        f"{numbered}\n\n"
+    )
+
+
+def sanitize_known_observations(raw: Optional[list[Any]]) -> list[str]:
+    texts: list[str] = []
+    for item in raw or []:
+        text = item.get("text") if isinstance(item, dict) else item
+        text = " ".join(str(text or "").split())
+        if not text:
+            continue
+        texts.append(text[:500])
+        if len(texts) >= 30:
+            break
+    return texts
+
+
+def offload_photo_block(images: list[str]) -> str:
+    """실험군 질문마다 지금 사진의 offload_photos.json 기록만 붙인다."""
+    notes = diagnosis.offload_photo_notes(images)
+    photos = notes.get("photos") or {}
+    if not photos:
+        return ""
+    body = {
+        "howToUse": notes.get("howToUse") or [],
+        "photos": photos,
+    }
+    return (
+        "[사진 자료]\n"
+        "학생이 지금 보는 사진의 기록이다. offload_photos.json에서 이번 파일명만 연 것이다. "
+        "지금 잎의 색, 모양, 개수, 비교, 맞는지, 관찰 문장은 이 기록을 기준으로 한다. "
+        "잎의 정답이 아닌 질문은 이 기록에 없어도 짧게 답할 수 있다.\n"
+        + json.dumps(body, ensure_ascii=False)
+        + "\n\n"
+    )
+
+
 def build_support_message(
     student_id: str,
     student_message: str,
@@ -413,7 +460,7 @@ def build_support_message(
 ) -> str:
     # AnythingLLM은 메시지 앞에 "@agent"가 있어야 도구(Agent Flow)를 호출한다.
     # 진단 내용은 붙이지 않는다. Agent가 진단 기록 조회 Flow로 SQLite에서 읽는다.
-    # 사진 파일명은 사진 메모 조회 Flow에 그대로 넣도록 태그에 적는다.
+    # 사진 파일명은 태그에 적고, 그 파일의 관찰 기록은 메시지 안의 [사진 자료]에 붙인다.
     tag = f"[studentId: {student_id}] [input: {input_kind}]"
     names = [name for name in (images or []) if name]
     if names:
@@ -426,11 +473,13 @@ class ChatRequest(BaseModel):
     studentId: str
     sessionId: str
     mode: str
-    # question: 학생이 AI에게 한 질문·요청, sentence: 탭 3에서 입력한 관찰 문장
+    # question: 학생이 AI에게 한 질문·요청. sentence는 예전 자동 응답용이며 지금은 쓰지 않는다.
     kind: str = "question"
     # 학생이 지금 보고 있는 사진. images는 왼쪽부터 최대 두 장이고, image는 왼쪽 한 장이다.
     image: Optional[str] = None
     images: Optional[list[str]] = None
+    # 이번 사진에 학생이 이미 적어 둔 관찰 문장. 답변을 만들지 않고, 질문할 때만 함께 보여 준다.
+    observations: Optional[list[Any]] = None
 
 
 @app.post("/api/chat")
@@ -439,6 +488,7 @@ async def chat(req: ChatRequest):
     if not message:
         raise HTTPException(400, "message가 필요합니다.")
     message = message[:2000]
+    student_text = message
 
     student_id = sanitize_id(req.studentId)
     session_id = sanitize_id(req.sessionId)
@@ -480,14 +530,26 @@ async def chat(req: ChatRequest):
         right_no = mode_images.index(images[1]) + 1
         message = f"[왼쪽 사진{left_no}, 오른쪽 사진{right_no}]\n{message}"
 
+    known = known_observation_block(sanitize_known_observations(req.observations))
+    # 사진 기록은 실험군 프롬프트에만 붙인다. 저장하는 질문 원문에는 넣지 않는다.
+    photo = offload_photo_block(images) if use_agent else ""
+    prompt_message = f"{photo}{known}[이번 말]\n{message}" if (photo or known) else message
+
     support_level: Optional[int] = None
     last_tool_id = 0
     if use_agent:
-        agent_message = build_support_message(student_id, message, input_kind, images)
+        agent_message = build_support_message(student_id, prompt_message, input_kind, images)
         last_tool_id = db.get_max_tool_call_id(student_id)
+        db.log_tool_call(
+            student_id=student_id,
+            tool_name="offload_photos",
+            input_text=",".join(images),
+            result_summary=f"count={len(images)}, images={','.join(images)}",
+        )
     else:
         # 대조군은 @agent 없이 학생의 말만 보낸다. 사진이 두 장이면 왼쪽·오른쪽 번호만 앞에 붙인다.
-        agent_message = message
+        # 이미 적은 관찰 문장은 질문 앞에만 붙이고, 저장하는 질문 원문에는 넣지 않는다.
+        agent_message = prompt_message
 
     answer = sanitize_answer(
         await call_anythingllm(slug, agent_message, f"{mode}-{session_id}", attachments)
@@ -529,7 +591,7 @@ async def chat(req: ChatRequest):
         session_id=session_id,
         images=images,
         comparison_mode=len(images) == 2,
-        question=message,
+        question=student_text,
         answer=answer,
         objectivity_score=None,
         term_count=None,
@@ -559,6 +621,42 @@ class SubmitRequest(BaseModel):
     sentences: list[Any] = Field(default_factory=list)
     # 시간이 다 되어 화면이 자동으로 제출한 경우 true
     auto: bool = False
+    # 실험군 탭 2에서 사진마다 관찰 전에 고른 '혼자 할 수 있는 관찰'
+    metaChecks: list[Any] = Field(default_factory=list)
+
+
+META_ABILITY_IDS = {"whole", "part", "one", "many", "qualitative", "quantitative", "compare", "number"}
+
+
+def sanitize_meta_checks(raw: list[Any]) -> list[dict[str, Any]]:
+    """사진별 자기 예상. 허용된 관찰 종류와 이 서버의 사진만 남긴다."""
+    checks: list[dict[str, Any]] = []
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()[:80]
+        if not key:
+            continue
+        abilities: list[str] = []
+        for ability in item.get("abilities") or []:
+            code = str(ability or "").strip()
+            if code in META_ABILITY_IDS and code not in abilities:
+                abilities.append(code)
+        images: list[str] = []
+        for name in item.get("images") or []:
+            if isinstance(name, str) and name in ALLOWED_IMAGES and name not in images:
+                images.append(name)
+            if len(images) == 2:
+                break
+        checks.append({
+            "key": key,
+            "abilities": abilities,
+            "images": images,
+            "none": not abilities,
+        })
+        if len(checks) >= 20:
+            break
+    return checks
 
 
 async def run_judge(
@@ -623,7 +721,7 @@ def mode_kind(mode: str) -> str:
 
 
 @app.post("/api/submit")
-async def submit(req: SubmitRequest, background: BackgroundTasks):
+async def submit(req: SubmitRequest):
     student_id = sanitize_id(req.studentId)
     if not student_id:
         raise HTTPException(400, "studentId가 필요합니다.")
@@ -637,39 +735,25 @@ async def submit(req: SubmitRequest, background: BackgroundTasks):
 
     sentences = diagnosis.normalize_sentences(req.sentences)
     # 문장마다 학생이 보고 있던 사진을 적어 둔다. 이 탭의 사진이 아니면 지운다.
+    # images[0]은 1번째(화면 왼쪽), images[1]은 2번째(화면 오른쪽)이다.
     mode_images = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
     for s in sentences:
-        if s.get("image") not in mode_images:
-            s["image"] = None
-        if s.get("imageRight") not in mode_images or s.get("imageRight") == s.get("image"):
-            s["imageRight"] = None
-    if not db.submit_session(student_id, mode, sentences, req.auto):
+        images: list[str] = []
+        for name in s.get("images") or []:
+            if name in mode_images and name not in images:
+                images.append(name)
+            if len(images) == 2:
+                break
+        s["images"] = images
+    # 실험군만 사진별 예상 유형을 남긴다. 고르지 않은 사진은 none이다.
+    # 수행 유형은 수업 중에 분류하지 않고, 문장마다 빈 자리만 둔다.
+    expectations = None
+    if mode == "offload" and db.get_study_group(student_id) == "B":
+        expectations = sanitize_meta_checks(req.metaChecks)
+        for sentence in sentences:
+            sentence["performedTypes"] = None
+    if not db.submit_session(student_id, mode, sentences, req.auto, expectations):
         return {"ok": True, "alreadySubmitted": True}
-
-    turns = db.get_mode_observations(student_id, mode)
-    # 탭 1 판정은 썸네일 순서의 사진 전부를 첨부한다. 그 외에는 문장에 적힌 사진만 보낸다.
-    if mode == "assess":
-        image_names = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
-    else:
-        image_names = diagnosis.images_used(sentences) or [
-            img for img in session.get("images", []) if img in ALLOWED_IMAGES
-        ][:1]
-
-    if mode == "assess":
-        payload = diagnosis.unclassified_observation(sentences, MODE_IMAGES[mode])
-    elif mode == "offload":
-        payload = diagnosis.score_offloading(turns, sentences, session.get("started_at"))
-    else:
-        # 탭 3 사후 과제는 AI 없이 제출한 관찰 문장만 남긴다.
-        payload = diagnosis.unclassified_observation(sentences, MODE_IMAGES[mode])
-
-    # 탭 1은 제출 문장이 없으면 Agent가 분류할 문장이 없으므로 분류 전 기록만 남긴다.
-    needs_judge = bool(judge_slug_for(mode)) and not (mode == "assess" and not sentences)
-    payload["judgeStatus"] = "pending" if needs_judge else "skipped"
-    db.save_diagnosis(student_id, mode, mode_kind(mode), payload)
-
-    if payload["judgeStatus"] == "pending":
-        background.add_task(run_judge, student_id, mode, payload, sentences, turns, image_names)
 
     return {"ok": True, "alreadySubmitted": False, "sentenceCount": len(sentences)}
 
@@ -756,63 +840,10 @@ def tool_observation_result(
     body: ObservationResult,
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """관찰력 진단 결과 기록. Agent가 분류한 문장별 정보를 받아 서버가 지수를 계산해 diagnoses에 저장한다."""
+    """관찰력 진단 결과는 저장하지 않는다. 예전 Agent 호출이 와도 diagnoses를 바꾸지 않는다."""
     require_tool_key(x_tool_key)
-    student_id = tool_student(body.studentId)
-
-    record = db.get_diagnosis(student_id, "assess")
-    if not record:
-        raise HTTPException(404, "제출된 관찰력 진단이 없습니다.")
-    stored = dict(record["payload"])
-
-    match = str(body.photoMatch or "unknown").strip().lower()
-    if match not in ("match", "partly", "mismatch", "unknown"):
-        match = "unknown"
-    parsed = diagnosis.parse_agent_messages(body.messages)
-    legacy_level: Optional[int] = None
-    try:
-        legacy_level = int(str(body.level).strip())
-    except (TypeError, ValueError):
-        legacy_level = None
-
-    if parsed:
-        merged = diagnosis.apply_agent_observation(stored, parsed, match)
-        sentence_count = merged.get("sentenceCount", 0)
-        recorded = [i for i in parsed if 1 <= i <= sentence_count]
-        # 이번 호출까지 합쳐서 Agent가 아직 기록하지 않은 문장 번호
-        missing = [
-            i for i, m in enumerate(merged.get("messages", []), start=1) if m.get("source") != "agent"
-        ]
-        summary = (
-            f"기록 완료: 문장 {len(recorded)}/{sentence_count}, "
-            f"OQ_A {stored.get('oqA')} -> {merged.get('oqA')}, D={merged.get('D')}"
-        )
-        response: dict[str, Any] = {
-            "ok": True,
-            "recorded": True,
-            "recordedCount": len(recorded),
-            "sentenceCount": sentence_count,
-            "missingIndexes": missing,
-        }
-    elif legacy_level in (1, 2, 3):
-        merged = diagnosis.apply_legacy_level(stored, legacy_level, match)
-        summary = f"이전 형식(level만) 기록: 수준 {stored.get('level')} -> {legacy_level}"
-        response = {"ok": True, "recorded": True, "legacy": True}
-    else:
-        raise HTTPException(
-            400,
-            "messages 형식을 읽지 못했습니다. 예: 1:2:match:2-정성-단수-부분;2:1:mismatch:0",
-        )
-
-    merged["judgeStatus"] = "done"
-    db.save_diagnosis(student_id, "assess", mode_kind("assess"), merged)
-    db.log_tool_call(
-        student_id=student_id,
-        tool_name="observation_result",
-        input_text=f"messages={str(body.messages)[:300]}, photoMatch={match}",
-        result_summary=summary,
-    )
-    return response
+    tool_student(body.studentId)
+    return {"ok": True, "recorded": False}
 
 
 @app.get("/api/tools/observation-assessment")
@@ -1006,34 +1037,100 @@ def tool_support_photos(
     ),
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """탭 3 사진별 관찰 메모(canAsk, dontAsk, safeFacts, sampleSentence)를 돌려준다."""
+    """사진별 관찰 경계. 탭 2 파일명이면 offload_photos, 사후 과제 파일명이면 support_photos를 연다."""
     require_tool_key(x_tool_key)
     student_id = tool_student(studentId)
-    mode_images = MODE_IMAGES["support"]
+    offload_catalog = MODE_IMAGES["offload"]
+    support_catalog = MODE_IMAGES["support"]
     requested: list[str] = []
     if images:
         for part in images.split(","):
             name = part.strip()
-            if name in mode_images and name not in requested:
+            if name and name not in requested and (name in offload_catalog or name in support_catalog):
                 requested.append(name)
-    notes = diagnosis.support_photo_notes(requested or None)
+        offload_names = [name for name in requested if name in offload_catalog]
+        support_names = [name for name in requested if name in support_catalog]
+        if offload_names and not support_names:
+            notes = diagnosis.offload_photo_notes(offload_names)
+            source = "offload_photos"
+        elif support_names and not offload_names:
+            notes = diagnosis.support_photo_notes(support_names)
+            source = "support_photos"
+        else:
+            offload_notes = diagnosis.offload_photo_notes(offload_names)
+            support_notes = diagnosis.support_photo_notes(support_names)
+            notes = {
+                "version": None,
+                "photos": {**(support_notes.get("photos") or {}), **(offload_notes.get("photos") or {})},
+                "howToUse": offload_notes.get("howToUse") or support_notes.get("howToUse") or [],
+            }
+            source = "mixed" if offload_names and support_names else "none"
+    else:
+        notes = diagnosis.support_photo_notes(None)
+        source = "support_photos"
+    file_rules = " ".join(notes.get("howToUse") or [])
     db.log_tool_call(
         student_id=student_id,
         tool_name="support_photos",
         input_text=images or "",
-        result_summary=f"count={len(notes.get('photos') or {})}, images={','.join(requested) or 'all'}",
+        result_summary=(
+            f"source={source}, count={len(notes.get('photos') or {})}, "
+            f"images={','.join(requested) or 'all'}"
+        ),
     )
     return {
         **notes,
+        "source": source,
         "requested": requested,
         "howToUse": (
             "메시지 태그의 [images: ...]에 있는 파일명만 고르세요. "
-            "canAsk는 안내할 때 참고만 하고 부위를 대신 지정하지 마세요. "
-            "dontAsk는 묻거나 말하지 마세요. "
-            "safeFacts는 학생이 그 사실을 명시적으로 요청했을 때만 하나만 주세요. "
-            "sampleSentence는 관찰 문장 전체를 요청했을 때만 쓰세요. "
-            "확인 요청에서는 사진과 safeFacts로 맞다/틀리다만 판단하고, "
-            "틀렸을 때 학생이 말하지 않은 새 사실을 넣지 마세요."
+            f"이 응답의 source는 {source}입니다. "
+            + file_rules
+        ),
+    }
+
+
+@app.get("/api/tools/offload-photos")
+def tool_offload_photos(
+    studentId: str = Query(...),
+    images: Optional[str] = Query(
+        None,
+        description="쉼표로 이은 탭 2 사진 파일명. 비우면 탭 2 사진 전체",
+    ),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """탭 2 사진 기록(offload_photos.json)을 돌려준다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+    catalog = MODE_IMAGES["offload"]
+    requested: list[str] = []
+    if images:
+        for part in images.split(","):
+            name = part.strip()
+            if name in catalog and name not in requested:
+                requested.append(name)
+        notes = diagnosis.offload_photo_notes(requested)
+    else:
+        notes = diagnosis.offload_photo_notes(None)
+        requested = list(catalog)
+    file_rules = " ".join(notes.get("howToUse") or [])
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="offload_photos",
+        input_text=images or "",
+        result_summary=(
+            f"count={len(notes.get('photos') or {})}, "
+            f"images={','.join(requested) or 'all'}"
+        ),
+    )
+    return {
+        **notes,
+        "source": "offload_photos",
+        "requested": requested,
+        "howToUse": (
+            "메시지 태그의 [images: ...]에 있는 파일명만 고르세요. "
+            "이 응답은 offload_photos.json에서 연 탭 2 사진 기록입니다. "
+            + file_rules
         ),
     }
 

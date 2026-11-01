@@ -35,7 +35,57 @@ HEADERS = [
     "도구 누락",
 ]
 
-MODE_LABELS = {"assess": "관찰력 진단", "offload": "오프로딩 진단", "support": "AI Agent 지원"}
+MODE_LABELS = {
+    "assess": "사전 과제",
+    "pre_test": "사전 과제",
+    "offload": "AI 활용 과제",
+    "Gen_AI": "생성형 AI",
+    "AI_Agent": "AI Agent",
+    "support": "사후 과제",
+    "post_test": "사후 과제",
+}
+
+
+def mode_label(mode: Any) -> str:
+    text = "" if mode is None else str(mode)
+    label = MODE_LABELS.get(text)
+    if text and label:
+        return f"{text} ({label})"
+    return text
+
+
+def _record_images(item: Any) -> list[str]:
+    """1번째, 2번째 사진. 예전 image, imageRight 기록도 읽는다."""
+    if not isinstance(item, dict):
+        return []
+    raw = item.get("images")
+    names: list[str] = []
+    if isinstance(raw, list) and raw:
+        names.extend(name for name in raw if isinstance(name, str) and name)
+    else:
+        for key in ("image", "imageRight"):
+            name = item.get(key)
+            if isinstance(name, str) and name:
+                names.append(name)
+    unique: list[str] = []
+    for name in names:
+        if name not in unique:
+            unique.append(name)
+        if len(unique) == 2:
+            break
+    return unique
+
+
+def _record_photo_numbers(item: dict[str, Any]) -> list[Any]:
+    raw = item.get("photoNumbers")
+    if isinstance(raw, list) and raw:
+        return raw[:2]
+    numbers: list[Any] = []
+    if item.get("photoNumber"):
+        numbers.append(item.get("photoNumber"))
+    if item.get("photoNumberRight"):
+        numbers.append(item.get("photoNumberRight"))
+    return numbers
 
 
 def sanitize_sheet_name(name: str) -> str:
@@ -60,7 +110,7 @@ def _row_values(row: dict[str, Any]) -> list[Any]:
         row.get("spatial_scope"),
         row.get("pedagogy_rule_id"),
         row.get("ai_stage"),
-        MODE_LABELS.get(row.get("mode"), row.get("mode")),
+        mode_label(row.get("mode")),
         row.get("input_kind"),
         ", ".join(row.get("observation_types") or []) if isinstance(row.get("observation_types"), list) else "",
         row.get("support_level"),
@@ -174,7 +224,7 @@ def _add_diagnoses_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
         ws.append(
             [
                 d.get("student_id"),
-                MODE_LABELS.get(d.get("mode"), d.get("mode")),
+                mode_label(d.get("mode")),
                 d.get("kind"),
                 d.get("created_at"),
                 p.get("stage"),
@@ -234,7 +284,7 @@ def _add_classification_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
     """탭 1(관찰력 진단)과 탭 3(지원 후 관찰)의 문장별 분류 결과를 한 줄씩 적는다."""
     ws = wb.create_sheet(title="관찰분류")
     ws.append(
-        ["학번", "모드", "번호", "관찰 문장", "사진 번호", "사진", "오른쪽 사진 번호", "오른쪽 사진", "사진 일치",
+        ["학번", "모드", "번호", "관찰 문장", "1번째 사진 번호", "1번째 사진", "2번째 사진 번호", "2번째 사진", "사진 일치",
          "LE", "정보 단위(객관도-측정-비교-범위)",
          "ΣDO", "LE×ΣDO", "범위 밖 표시", "분류 출처"]
     )
@@ -248,13 +298,13 @@ def _add_classification_sheet(wb: Workbook, diagnoses: list[dict[str, Any]]):
             ws.append(
                 [
                     d.get("student_id"),
-                    MODE_LABELS.get(d.get("mode"), d.get("mode")),
+                    mode_label(d.get("mode")),
                     i,
                     m.get("text"),
-                    m.get("photoNumber"),
-                    m.get("image"),
-                    m.get("photoNumberRight"),
-                    m.get("imageRight"),
+                    (_record_photo_numbers(m) + [None, None])[0],
+                    (_record_images(m) + [None, None])[0],
+                    (_record_photo_numbers(m) + [None, None])[1],
+                    (_record_images(m) + [None, None])[1],
                     PHOTO_MATCH_LABELS.get(m.get("photoMatch"), ""),
                     m.get("le"),
                     " / ".join(_unit_text(u) for u in m.get("units") or []),
@@ -280,7 +330,7 @@ def _add_mode_sessions_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
         ws.append(
             [
                 m.get("student_id"),
-                MODE_LABELS.get(m.get("mode"), m.get("mode")),
+                mode_label(m.get("mode")),
                 m.get("started_at"),
                 m.get("deadline_at"),
                 m.get("submitted_at"),
@@ -293,9 +343,69 @@ def _add_mode_sessions_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
     return ws
 
 
+ABILITY_LABELS = {
+    "whole": "잎의 전체 특성",
+    "part": "잎의 일부분",
+    "one": "잎 하나",
+    "many": "잎 여러 개 비교",
+    "qualitative": "정성",
+    "quantitative": "정량",
+    "compare": "두 곳 비교",
+    "number": "개수나 길이",
+}
+
+
+def _ability_text(abilities: Any, none: bool = False) -> str:
+    if none:
+        return "없음"
+    if not isinstance(abilities, list) or not abilities:
+        return "없음"
+    return ", ".join(ABILITY_LABELS.get(code, str(code)) for code in abilities)
+
+
+def _performed_text(sentence: Any) -> str:
+    if not isinstance(sentence, dict) or "performedTypes" not in sentence:
+        return ""
+    performed = sentence.get("performedTypes")
+    if performed is None:
+        return "미분류"
+    return _ability_text(performed, none=not performed)
+
+
+def _add_expectations_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
+    ws = wb.create_sheet(title="예상유형")
+    ws.append(["학번", "모드", "사진 키", "1번째 사진", "2번째 사진", "예상한 관찰", "수행 유형"])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for session in mode_sessions:
+        expectations = session.get("expectations")
+        if not isinstance(expectations, list):
+            continue
+        for item in expectations:
+            if not isinstance(item, dict):
+                continue
+            images = _record_images(item)
+            ws.append(
+                [
+                    session.get("student_id"),
+                    mode_label(session.get("mode")),
+                    item.get("key"),
+                    (images + [None, None])[0],
+                    (images + [None, None])[1],
+                    _ability_text(item.get("abilities"), none=bool(item.get("none"))),
+                    "미분류",
+                ]
+            )
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws)
+    return ws
+
+
 def _add_sentences_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
     ws = wb.create_sheet(title="제출문장")
-    ws.append(["학번", "모드", "번호", "시작 후 경과(초)", "관찰 문장", "왼쪽 사진", "오른쪽 사진"])
+    ws.append(["학번", "모드", "번호", "시작 후 경과(초)", "관찰 문장", "1번째 사진", "2번째 사진", "수행 유형"])
     for cell in ws[1]:
         cell.font = Font(bold=True)
     for m in mode_sessions:
@@ -303,12 +413,13 @@ def _add_sentences_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
             ws.append(
                 [
                     m.get("student_id"),
-                    MODE_LABELS.get(m.get("mode"), m.get("mode")),
+                    mode_label(m.get("mode")),
                     i,
                     sent.get("t") if isinstance(sent, dict) else None,
                     sent.get("text") if isinstance(sent, dict) else str(sent),
-                    sent.get("image") if isinstance(sent, dict) else None,
-                    sent.get("imageRight") if isinstance(sent, dict) else None,
+                    (_record_images(sent) + [None, None])[0],
+                    (_record_images(sent) + [None, None])[1],
+                    _performed_text(sent),
                 ]
             )
     for row in ws.iter_rows(min_row=2):
@@ -333,6 +444,7 @@ def build_admin_xlsx(
     if mode_sessions:
         _add_mode_sessions_sheet(wb, mode_sessions)
         _add_sentences_sheet(wb, mode_sessions)
+        _add_expectations_sheet(wb, mode_sessions)
     ws_summary = wb.create_sheet(title="학생목록")
     ws_summary.append(
         [

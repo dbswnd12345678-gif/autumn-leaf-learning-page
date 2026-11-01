@@ -710,6 +710,10 @@ body {
   font-size: 0.92rem;
 }
 
+#start-desc {
+  white-space: pre-line;
+}
+
 #start-btn {
   padding: 12px 28px;
   background: #c0521b;
@@ -738,6 +742,113 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+
+.meta-check {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  margin: 16px;
+  padding: 18px 16px;
+  border: 1px solid #f0e2cf;
+  border-radius: 14px;
+  background: #fffdf9;
+  overflow: auto;
+}
+
+.meta-check[hidden] {
+  display: none;
+}
+
+.meta-check h3 {
+  margin: 0;
+  color: #8a4a12;
+  font-size: 1.05rem;
+  text-align: center;
+}
+
+.meta-check p {
+  margin: 0;
+  line-height: 1.55;
+  color: #4a4036;
+  font-size: 0.92rem;
+}
+
+.meta-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.meta-option {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e4d3c0;
+  background: #fff;
+  color: #3d342c;
+  font: inherit;
+  cursor: pointer;
+}
+
+.meta-option[aria-pressed="true"] {
+  border-color: #c46a1a;
+  background: #fdebd6;
+  font-weight: 700;
+}
+
+.meta-option[hidden] {
+  display: none;
+}
+
+.meta-option-break {
+  margin-top: 8px;
+}
+
+.meta-check-note {
+  font-size: 0.82rem;
+  color: #8a7a6a;
+}
+
+#meta-check-start {
+  align-self: center;
+  padding: 12px 22px;
+  border: none;
+  border-radius: 999px;
+  background: #c46a1a;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.meta-result {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fdf6ee;
+  color: #6b4a2a;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.meta-result[hidden] {
+  display: none;
+}
+
+.work-area.is-meta-gate .chat-section,
+.work-area.is-meta-gate .sentence-head,
+.work-area.is-meta-gate .sentence-list,
+.work-area.is-meta-gate .sentence-input-row,
+.work-area.is-meta-gate .meta-result {
+  display: none;
+}
+
+.work-area.is-meta-gate .sentence-section {
+  flex: 0 0 auto;
+  border-top: none;
 }
 
 .chat-section {

@@ -3,18 +3,18 @@
 // 서버가 모드별 세션과 사진을 정한다. 제한 시간은 SESSION_SECONDS가 0보다 클 때만 흐른다.
 const MODES = {
   assess: {
-    subtitle: "AI 없이 사진을 보고 관찰한 내용을 문장으로 적어 보세요. 여러 문장을 쓸 수 있어요.",
+    subtitle: "사진을 보고 관찰한 내용을 문장으로 적어보세요. 여러 문장을 쓸 수 있어요.",
     hint: "※ 사진에서 보이는 것을 한 문장씩 적어 주세요. 다 쓰면 최종 제출을 누르세요.",
     startTitle: "탭 1 · 사전 과제",
-    startDesc: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 다 쓰면 최종 제출을 누르세요.",
-    startDescTimed: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 시작하면 제한 시간이 흐르고, 시간이 끝나면 자동으로 제출돼요.",
+    startDesc: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다.\n다 쓰면 최종 제출을 누르세요.",
+    startDescTimed: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 시작하면 제한 시간이 흐르고, 시간이 끝나면 자동으로 제출돼요.",
     chat: false,
     sentenceToAI: false,
     sentenceTip: "AI 없이 직접 관찰하세요.",
   },
   offload: {
     subtitle: "생성형 AI에게 질문하거나 요청하면서 단풍잎을 관찰합니다. 관찰 문장은 따로 적어 제출합니다.",
-    hint: "※ AI에게 무엇이든 물어봐도 돼요. 제출할 관찰 문장은 오른쪽 아래 입력란에 따로 적어 주세요.",
+    hint: "※ AI에게 무엇이든 물어봐도 돼요. 관찰 문장은 아래 입력란에 따로 적어요. 질문할 때 AI는 적어 둔 문장을 알고 답해요.",
     startTitle: "탭 2 · 생성형 AI 활용 과제",
     startDesc: "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요.",
     startDescTimed: "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요. 시작하면 제한 시간이 흐릅니다.",
@@ -25,11 +25,11 @@ const MODES = {
     sentenceTip: "AI 답변과 별개로, 내가 관찰한 내용을 적어요.",
   },
   support: {
-    subtitle: "AI 없이 사진을 보고 관찰한 내용을 문장으로 적어 보세요. 여러 문장을 쓸 수 있어요.",
+    subtitle: "사진을 보고 관찰한 내용을 문장으로 적어보세요. 여러 문장을 쓸 수 있어요.",
     hint: "※ 사진에서 보이는 것을 한 문장씩 적어 주세요. 다 쓰면 최종 제출을 누르세요.",
     startTitle: "탭 3 · 사후 과제",
-    startDesc: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 다 쓰면 최종 제출을 누르세요.",
-    startDescTimed: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 이 탭에서는 AI를 쓰지 않아요. 시작하면 제한 시간이 흐르고, 시간이 끝나면 자동으로 제출돼요.",
+    startDesc: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다.\n다 쓰면 최종 제출을 누르세요.",
+    startDescTimed: "단풍잎 사진을 보고 관찰한 내용을 문장으로 적습니다. 시작하면 제한 시간이 흐르고, 시간이 끝나면 자동으로 제출돼요.",
     chat: false,
     sentenceToAI: false,
     sentenceTip: "AI 없이 직접 관찰하세요.",
@@ -54,19 +54,19 @@ function applyStudyGroup(group, mismatch = false) {
   const spec = MODES.offload;
   if (studyGroup === "B") {
     if (tab2) tab2.textContent = "탭 2 AI Agent 활용 과제";
-    spec.subtitle = "AI 도우미와 대화하면서 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 다음에 볼 것을 안내해요.";
-    spec.hint = "※ 관찰 문장을 추가하면 AI 도우미가 도움말을 줍니다. 궁금한 것은 위쪽 대화창에 물어보세요.";
+    spec.subtitle = "AI 도우미에게 질문하면서 단풍잎을 관찰합니다. 관찰 문장은 직접 적고, 물어본 내용에만 도우미가 답해요.";
+    spec.hint = "※ 관찰 문장은 아래 입력란에 직접 적어요. 궁금한 것은 위쪽 대화창에 물어보세요. 물어볼 때 도우미는 적어 둔 문장을 알고 답해요.";
     spec.startTitle = "탭 2 · AI Agent 활용 과제";
-    spec.startDesc = "AI 도우미와 함께 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 방법을 안내해요.";
-    spec.startDescTimed = "AI 도우미와 함께 단풍잎을 관찰합니다. 관찰 문장을 입력하면 도우미가 방법을 안내해요. 시작하면 제한 시간이 흐릅니다.";
-    spec.sentenceToAI = true;
-    spec.greeting = "안녕하세요! 저는 관찰 도우미예요. 사진을 보고 관찰한 문장을 아래에 입력해 보세요. 궁금한 점은 여기에 물어봐도 돼요.";
+    spec.startDesc = "사진을 고를 때마다, 혼자 할 수 있는 관찰을 먼저 고르고 시작합니다.\n관찰 문장은 직접 적고, 필요할 때만 AI 도우미에게 물어보세요.";
+    spec.startDescTimed = "사진을 고를 때마다, 혼자 할 수 있는 관찰을 먼저 고르고 시작합니다. 관찰 문장은 직접 적고, 필요할 때만 AI 도우미에게 물어보세요. 시작하면 제한 시간이 흐릅니다.";
+    spec.sentenceToAI = false;
+    spec.greeting = "안녕하세요! 저는 관찰 도우미예요. 관찰 문장은 아래에 직접 적어 주세요. 궁금한 점이 있으면 여기에 물어보세요.";
     spec.chatPlaceholder = "AI 도우미에게 질문하세요... (Enter 전송, Shift+Enter 줄바꿈)";
-    spec.sentenceTip = "문장을 추가하면 도우미가 답해요.";
+    spec.sentenceTip = "관찰한 내용을 직접 적어요.";
   } else if (studyGroup === "A") {
     if (tab2) tab2.textContent = "탭 2 생성형 AI 활용 과제";
     spec.subtitle = "생성형 AI에게 질문하거나 요청하면서 단풍잎을 관찰합니다. 관찰 문장은 따로 적어 제출합니다.";
-    spec.hint = "※ AI에게 무엇이든 물어봐도 돼요. 제출할 관찰 문장은 오른쪽 아래 입력란에 따로 적어 주세요.";
+    spec.hint = "※ AI에게 무엇이든 물어봐도 돼요. 관찰 문장은 아래 입력란에 따로 적어요. 질문할 때 AI는 적어 둔 문장을 알고 답해요.";
     spec.startTitle = "탭 2 · 생성형 AI 활용 과제";
     spec.startDesc = "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요.";
     spec.startDescTimed = "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요. 시작하면 제한 시간이 흐릅니다.";
@@ -252,6 +252,136 @@ function photoThreadKey(mode = currentMode) {
   return pairKey(picked, mode);
 }
 
+// 실험군 탭 2: 사진(또는 비교 쌍)마다, 관찰 전에 혼자 할 수 있는 관찰을 고른다.
+const META_ABILITIES = [
+  { id: "whole", label: "잎의 전체 특성을 관찰" },
+  { id: "part", label: "잎의 일부분을 관찰" },
+  { id: "one", label: "잎 하나를 관찰", compareOnly: true },
+  { id: "many", label: "잎 여러개를 비교한 관찰", compareOnly: true },
+  { id: "qualitative", label: "정성적인 관찰", groupBreak: true },
+  { id: "quantitative", label: "정량적인 관찰" },
+];
+let metaDraftKey = "";
+let metaDraft = new Set();
+
+function metaApplies() {
+  return currentMode === "offload" && studyGroup === "B";
+}
+
+function loadMetaMap(mode = currentMode) {
+  const saved = loadJson(storeKey("meta", mode), {});
+  return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+}
+
+function currentMetaRecord() {
+  return loadMetaMap()[photoThreadKey()] || null;
+}
+
+function metaGateActive() {
+  return metaApplies() && modeInfo(currentMode)?.status === "in_progress" && !currentMetaRecord();
+}
+
+function canEditObservation() {
+  return modeInfo(currentMode)?.status === "in_progress" && !metaGateActive();
+}
+
+function syncObservationLock() {
+  const editable = canEditObservation();
+  if (sentenceInput) sentenceInput.disabled = !editable;
+  if (sentenceAddBtn) sentenceAddBtn.disabled = !editable;
+  if (chatInput) chatInput.disabled = !editable;
+  if (sendBtn) sendBtn.disabled = !editable;
+  if (submitBtn) submitBtn.disabled = modeInfo(currentMode)?.status !== "in_progress";
+}
+
+function metaAbilitiesForView() {
+  const compare = compareWanted();
+  return META_ABILITIES.filter((item) => !item.compareOnly || compare);
+}
+
+function ensureMetaOptions() {
+  const box = $("meta-options");
+  if (!box || box.childElementCount) return;
+  META_ABILITIES.forEach((item) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "meta-option" + (item.groupBreak || item.id === "one" ? " meta-option-break" : "");
+    btn.dataset.ability = item.id;
+    btn.textContent = item.label;
+    btn.setAttribute("aria-pressed", "false");
+    btn.addEventListener("click", () => {
+      if (metaDraft.has(item.id)) metaDraft.delete(item.id);
+      else metaDraft.add(item.id);
+      btn.setAttribute("aria-pressed", metaDraft.has(item.id) ? "true" : "false");
+    });
+    box.appendChild(btn);
+  });
+}
+
+function syncMetaOptionVisibility() {
+  ensureMetaOptions();
+  const visible = new Set(metaAbilitiesForView().map((item) => item.id));
+  document.querySelectorAll(".meta-option").forEach((btn) => {
+    const show = visible.has(btn.dataset.ability);
+    btn.hidden = !show;
+    if (!show && metaDraft.has(btn.dataset.ability)) {
+      metaDraft.delete(btn.dataset.ability);
+      btn.setAttribute("aria-pressed", "false");
+    }
+  });
+}
+
+function metaResultText(record, sentenceCount, twoPhotos) {
+  const labels = META_ABILITIES.filter((item) => (record.abilities || []).includes(item.id)).map((item) => item.label);
+  const place = twoPhotos ? "이 두 사진에서는" : "이 사진에서는";
+  const expected = labels.length
+    ? `혼자 할 수 있다고 예상한 것은 ${labels.join(", ")}입니다.`
+    : `${place} 혼자 하기 어렵다고 예상했습니다.`;
+  const actual = sentenceCount > 0
+    ? `지금까지 직접 쓴 문장은 ${sentenceCount}개입니다.`
+    : "아직 직접 쓴 문장은 없습니다.";
+  return `${expected} ${actual}`;
+}
+
+function renderMetaGate() {
+  const gate = $("meta-check");
+  const result = $("meta-result");
+  if (!gate || !result) return;
+  const active = metaGateActive();
+  workArea.classList.toggle("is-meta-gate", active);
+  gate.hidden = !active;
+  if (active) {
+    syncMetaOptionVisibility();
+    const key = photoThreadKey();
+    if (metaDraftKey !== key) {
+      metaDraftKey = key;
+      metaDraft = new Set();
+      document.querySelectorAll(".meta-option").forEach((btn) => btn.setAttribute("aria-pressed", "false"));
+    }
+    const two = selectedImages().length === 2;
+    $("meta-check-title").textContent = `${selectionTitle()} 관찰을 시작하기 전에`;
+    $("meta-check-lead").textContent = two
+      ? "이 두 사진에서 내가 혼자 할 수 있는 관찰을 고르세요. AI에게 맡기지 않고 직접 쓸 수 있다고 생각하는 것만 고르면 됩니다."
+      : "이 사진에서 내가 혼자 할 수 있는 관찰을 고르세요. AI에게 맡기지 않고 직접 쓸 수 있다고 생각하는 것만 고르면 됩니다.";
+    result.hidden = true;
+    return;
+  }
+  const record = metaApplies() ? currentMetaRecord() : null;
+  const showResult = !!record && !workArea.hidden;
+  result.hidden = !showResult;
+  if (showResult) {
+    result.textContent = metaResultText(record, sentencesForSelection().length, selectedImages().length === 2);
+  }
+}
+
+function metaChecksForSubmit(mode) {
+  return Object.entries(loadMetaMap(mode)).map(([key, rec]) => ({
+    key,
+    abilities: Array.isArray(rec?.abilities) ? rec.abilities : [],
+    images: Array.isArray(rec?.images) ? rec.images : [],
+  }));
+}
+
 function loadChatBucket(mode = currentMode) {
   const raw = loadJson(storeKey("chat", mode), null);
   if (Array.isArray(raw)) {
@@ -345,11 +475,15 @@ function saveSelectedImages(names, mode = currentMode) {
   localStorage.setItem(storeKey("images", mode), JSON.stringify(unique));
 }
 
+function sentenceImages(sentence) {
+  if (Array.isArray(sentence?.images)) return sentence.images.filter(Boolean).slice(0, 2);
+  return [sentence?.image, sentence?.imageRight].filter(Boolean);
+}
+
 function samePhotoPair(sentence, a, b) {
-  const left = sentence.image;
-  const right = sentence.imageRight;
-  if (!left || !right) return false;
-  return (left === a && right === b) || (left === b && right === a);
+  const names = sentenceImages(sentence);
+  if (names.length !== 2) return false;
+  return (names[0] === a && names[1] === b) || (names[0] === b && names[1] === a);
 }
 
 function selectedImage(mode = currentMode) {
@@ -469,7 +603,7 @@ function renderImagePicker() {
   });
 }
 
-// 문장 옆에 붙일 사진 번호. 두 장이면 "왼쪽 사진 N 오른쪽 사진 M".
+// 문장 옆에 붙일 사진 번호. 두 장이면 "사진 N · 사진 M"이고, 앞이 1번째다.
 function photoLabel(name, mode = currentMode) {
   const idx = modeImages(mode).indexOf(name);
   return idx >= 0 ? `사진 ${idx + 1}` : "";
@@ -482,10 +616,11 @@ function photoNumberForFile(name) {
 window.photoNumberForFile = photoNumberForFile;
 
 function sentencePhotoLabel(sentence, mode = currentMode) {
-  if (sentence.image && sentence.imageRight) {
-    return `${photoLabel(sentence.image, mode)} · ${photoLabel(sentence.imageRight, mode)}`;
+  const names = sentenceImages(sentence);
+  if (names.length >= 2) {
+    return `${photoLabel(names[0], mode)} · ${photoLabel(names[1], mode)}`;
   }
-  return photoLabel(sentence.image, mode);
+  return photoLabel(names[0], mode);
 }
 
 function selectionTitle() {
@@ -500,7 +635,10 @@ function sentencesForSelection(list = loadSentences()) {
     return list.filter((s) => samePhotoPair(s, picked[0], picked[1]));
   }
   const only = picked[0];
-  return list.filter((s) => s.image === only && !s.imageRight);
+  return list.filter((s) => {
+    const names = sentenceImages(s);
+    return names.length === 1 && names[0] === only;
+  });
 }
 
 let sentenceDrafts = {};
@@ -628,7 +766,7 @@ function renderSentences() {
   list.forEach((s) => {
     const li = document.createElement("li");
     const label = sentencePhotoLabel(s);
-    if (label && s.imageRight) {
+    if (label && sentenceImages(s).length >= 2) {
       const tag = document.createElement("span");
       tag.className = "sentence-photo";
       tag.textContent = label;
@@ -645,7 +783,7 @@ function renderSentences() {
       del.addEventListener("click", () => {
         const cur = loadSentences();
         const idx = cur.findIndex((item) =>
-          item.text === s.text && item.t === s.t && item.image === s.image && (item.imageRight || null) === (s.imageRight || null)
+          item.text === s.text && item.t === s.t && sentenceImages(item).join("|") === sentenceImages(s).join("|")
         );
         if (idx >= 0) cur.splice(idx, 1);
         saveSentences(cur);
@@ -657,6 +795,7 @@ function renderSentences() {
   });
   sentenceCount.textContent = String(list.length);
   sentenceList.scrollTop = sentenceList.scrollHeight;
+  renderMetaGate();
 }
 
 function applyMode() {
@@ -705,12 +844,8 @@ function applyMode() {
   if (showWork) {
     renderChat();
     renderSentences();
-    const editable = status === "in_progress";
-    sentenceInput.disabled = !editable;
-    sentenceAddBtn.disabled = !editable;
-    chatInput.disabled = !editable;
-    sendBtn.disabled = !editable;
-    submitBtn.disabled = !editable;
+    syncObservationLock();
+    renderMetaGate();
     submitStatus.textContent =
       status === "submitted"
         ? "제출했어요. 수고했습니다!"
@@ -718,6 +853,8 @@ function applyMode() {
         ? "시간이 끝났어요. 제출하는 중..."
         : "";
     if (status === "expired" && !submitting) submitFinal(true);
+  } else {
+    workArea.classList.remove("is-meta-gate");
   }
   tick();
 }
@@ -738,7 +875,8 @@ document.querySelectorAll(".lesson-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     const mode = tab.dataset.mode;
     if (mode === currentMode) return;
-    if (anyInProgress()) {
+    const running = MODE_ORDER.find((item) => modeInfo(item)?.status === "in_progress");
+    if (running && mode !== running) {
       showNotice("진행 중인 탭을 제출한 뒤에 다른 탭으로 이동할 수 있어요.");
       return;
     }
@@ -755,7 +893,7 @@ startBtn.addEventListener("click", async () => {
     await api("/api/session/start", { method: "POST", body: { studentId, mode: currentMode } });
     await fetchStatus();
     applyMode();
-    (MODES[currentMode].chat ? chatInput : sentenceInput).focus();
+    if (!metaGateActive()) (MODES[currentMode].chat ? chatInput : sentenceInput).focus();
   } catch (err) {
     startMsg.textContent = err.message;
     startBtn.disabled = false;
@@ -836,6 +974,7 @@ async function sendToAI(text, kind) {
         kind,
         image,
         images,
+        observations: sentencesForSelection().map((item) => item.text).filter((text) => text && text.trim()),
       },
     });
     loadingEl?.remove();
@@ -849,9 +988,7 @@ async function sendToAI(text, kind) {
     });
   } finally {
     chatBusy = false;
-    const editable = modeInfo(currentMode)?.status === "in_progress";
-    sendBtn.disabled = !editable;
-    sentenceAddBtn.disabled = !editable;
+    syncObservationLock();
   }
 }
 
@@ -864,6 +1001,7 @@ chatInput.addEventListener("keydown", (e) => {
 
 chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (metaGateActive()) return;
   const text = chatInput.value.trim();
   if (!text || chatBusy) return;
   addMessage(text, "user");
@@ -890,7 +1028,7 @@ function elapsedSeconds() {
 function addSentence(text) {
   const cur = loadSentences();
   const picked = selectedImages();
-  cur.push({ text, t: elapsedSeconds(), image: picked[0] || null, imageRight: picked[1] || null });
+  cur.push({ text, t: elapsedSeconds(), images: picked.filter(Boolean) });
   saveSentences(cur);
   renderSentences();
 }
@@ -902,16 +1040,13 @@ sentenceInput.addEventListener("keydown", (e) => {
   }
 });
 
-sentenceForm.addEventListener("submit", async (e) => {
+sentenceForm.addEventListener("submit", (e) => {
   e.preventDefault();
+  if (metaGateActive()) return;
   const text = sentenceInput.value.trim();
   if (!text) return;
   addSentence(text);
   sentenceInput.value = "";
-  if (MODES[currentMode].sentenceToAI) {
-    addMessage(`(관찰 문장) ${text}`, "user");
-    await sendToAI(text, "sentence");
-  }
   sentenceInput.focus();
 });
 
@@ -940,7 +1075,10 @@ async function submitFinal(auto = false) {
   submitBtn.disabled = true;
   submitStatus.textContent = "제출하는 중...";
   try {
-    await api("/api/submit", { method: "POST", body: { studentId, mode, sentences, auto } });
+    await api("/api/submit", {
+      method: "POST",
+      body: { studentId, mode, sentences, auto, metaChecks: metaChecksForSubmit(mode) },
+    });
     await fetchStatus();
     applyMode();
     const next = nextModeHint(mode);
@@ -979,12 +1117,32 @@ measureToggle?.addEventListener("click", () => {
   }
 });
 
+$("meta-check-start")?.addEventListener("click", () => {
+  if (!metaGateActive()) return;
+  const map = loadMetaMap();
+  map[photoThreadKey()] = {
+    abilities: metaAbilitiesForView().map((item) => item.id).filter((id) => metaDraft.has(id)),
+    images: selectedImages().slice(),
+    at: Date.now(),
+  };
+  localStorage.setItem(storeKey("meta", currentMode), JSON.stringify(map));
+  renderMetaGate();
+  syncObservationLock();
+  sentenceInput?.focus();
+});
+
 // ---------------------------------------------------------------------------
 // 시작
 // ---------------------------------------------------------------------------
 updateStudentIdStatus();
 applyStudyGroup(studyGroup);
 refresh().then(() => {
+  const running = MODE_ORDER.find((item) => modeInfo(item)?.status === "in_progress");
+  if (running && running !== currentMode) {
+    currentMode = running;
+    applyMode();
+    return;
+  }
   // 서버 상태를 알기 전에 마지막으로 보던 탭이 잠겨 있으면 첫 탭으로 돌린다.
   if (modeInfo(currentMode)?.status === "locked") {
     currentMode = "assess";
