@@ -444,28 +444,20 @@ def offload_photo_block(images: list[str]) -> str:
     }
     return (
         "[사진 자료]\n"
-        "학생이 지금 보는 사진의 기록이다. offload_photos.json에서 이번 파일명만 연 것이다. "
-        "지금 잎의 색, 모양, 개수, 비교, 맞는지, 관찰 문장은 이 기록을 기준으로 한다. "
-        "잎의 정답이 아닌 질문은 이 기록에 없어도 짧게 답할 수 있다.\n"
         + json.dumps(body, ensure_ascii=False)
         + "\n\n"
     )
 
 
 def build_support_message(
-    student_id: str,
     student_message: str,
-    input_kind: str,
     images: Optional[list[str]] = None,
 ) -> str:
-    # AnythingLLM은 메시지 앞에 "@agent"가 있어야 도구(Agent Flow)를 호출한다.
-    # 진단 내용은 붙이지 않는다. Agent가 진단 기록 조회 Flow로 SQLite에서 읽는다.
-    # 사진 파일명은 태그에 적고, 그 파일의 관찰 기록은 메시지 안의 [사진 자료]에 붙인다.
-    tag = f"[studentId: {student_id}] [input: {input_kind}]"
+    # AnythingLLM은 메시지 앞에 "@agent"가 있어야 에이전트 모드로 답한다.
+    # 학번은 서버가 요청에서 알고, 사진 기록은 [사진 자료]로 이미 붙인다.
     names = [name for name in (images or []) if name]
-    if names:
-        tag += f" [images: {','.join(names)}]"
-    return f"@agent {tag}\n\n{student_message}"
+    tag = f" [images: {','.join(names)}]" if names else ""
+    return f"@agent{tag}\n\n{student_message}"
 
 
 class ChatRequest(BaseModel):
@@ -538,7 +530,7 @@ async def chat(req: ChatRequest):
     support_level: Optional[int] = None
     last_tool_id = 0
     if use_agent:
-        agent_message = build_support_message(student_id, prompt_message, input_kind, images)
+        agent_message = build_support_message(prompt_message, images)
         last_tool_id = db.get_max_tool_call_id(student_id)
         db.log_tool_call(
             student_id=student_id,
