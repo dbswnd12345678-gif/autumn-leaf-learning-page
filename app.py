@@ -216,19 +216,22 @@ async def call_anythingllm(
     session_id: str,
     attachments: Optional[list[dict]] = None,
     timeout: float = 120.0,
+    llm_mode: Optional[str] = "chat",
 ) -> str:
     """AnythingLLM 워크스페이스에 메시지를 보내고 답변 문장을 돌려준다.
-    Railway 쪽 연결이 간헐적으로 불안정해서 같은 요청을 한 번 더 시도한다."""
+    Railway 쪽 연결이 간헐적으로 불안정해서 같은 요청을 한 번 더 시도한다.
+    llm_mode를 비우면 워크스페이스에 저장한 채팅 모드를 그대로 쓴다."""
     if not (ANYTHINGLLM_BASE_URL and ANYTHINGLLM_API_KEY and slug):
         raise HTTPException(500, "서버에 AnythingLLM 연결 정보(환경변수)가 설정되지 않았습니다.")
 
     target_url = f"{normalize_base_url(ANYTHINGLLM_BASE_URL)}/api/v1/workspace/{slug}/chat"
     payload = {
         "message": message,
-        "mode": "chat",
         "sessionId": session_id,
         "attachments": attachments or [],
     }
+    if llm_mode:
+        payload["mode"] = llm_mode
 
     resp = None
     last_exc: Optional[Exception] = None
@@ -541,10 +544,17 @@ async def chat(req: ChatRequest):
     else:
         # 대조군은 @agent 없이 학생의 말만 보낸다. 사진이 두 장이면 왼쪽·오른쪽 번호만 앞에 붙인다.
         # 이미 적은 관찰 문장은 질문 앞에만 붙이고, 저장하는 질문 원문에는 넣지 않는다.
+        # 채팅 모드는 요청에 넣지 않아, 워크스페이스에 둔 에이전트 모드가 적용된다.
         agent_message = prompt_message
 
     answer = sanitize_answer(
-        await call_anythingllm(slug, agent_message, f"{mode}-{session_id}", attachments)
+        await call_anythingllm(
+            slug,
+            agent_message,
+            f"{mode}-{session_id}",
+            attachments,
+            llm_mode="chat" if use_agent else None,
+        )
         or "(응답이 비어 있습니다)"
     )
 
