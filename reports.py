@@ -175,6 +175,8 @@ TOOL_NAME_LABELS = {
     "support_methods": "오프로딩 단계별 지원방법 조회",
     "observation_methods": "관찰 유형 및 방법 조회",
     "dialogue_log": "개인별 대화 로그 조회",
+    "offload_photos": "탭 2 사진 자료 조회",
+    "support_photos": "탭 3 사진 메모 조회",
     "tool_skipped": "도구 호출 누락(자동 기록)",
 }
 

@@ -435,32 +435,17 @@ def sanitize_known_observations(raw: Optional[list[Any]]) -> list[str]:
     return texts
 
 
-def offload_photo_block(images: list[str]) -> str:
-    """실험군 질문마다 지금 사진의 offload_photos.json 기록만 붙인다."""
-    notes = diagnosis.offload_photo_notes(images)
-    photos = notes.get("photos") or {}
-    if not photos:
-        return ""
-    body = {
-        "howToUse": notes.get("howToUse") or [],
-        "photos": photos,
-    }
-    return (
-        "[사진 자료]\n"
-        + json.dumps(body, ensure_ascii=False)
-        + "\n\n"
-    )
-
-
 def build_support_message(
     student_message: str,
+    student_id: str,
     images: Optional[list[str]] = None,
 ) -> str:
-    # AnythingLLM은 메시지 앞에 "@agent"가 있어야 에이전트 모드로 답한다.
-    # 학번은 서버가 요청에서 알고, 사진 기록은 [사진 자료]로 이미 붙인다.
+    # AnythingLLM은 메시지 앞에 "@agent"가 있어야 Agent Flow를 부른다.
+    # 사진 기록은 서버가 붙이지 않는다. "탭 2 사진 자료 조회" Flow가
+    # [studentId: ...]와 [images: ...]를 읽어 /api/tools/offload-photos를 호출한다.
     names = [name for name in (images or []) if name]
-    tag = f" [images: {','.join(names)}]" if names else ""
-    return f"@agent{tag}\n\n{student_message}"
+    image_tag = f" [images: {','.join(names)}]" if names else ""
+    return f"@agent [studentId: {student_id}]{image_tag}\n\n{student_message}"
 
 
 class ChatRequest(BaseModel):
@@ -526,21 +511,14 @@ async def chat(req: ChatRequest):
         message = f"[왼쪽 사진{left_no}, 오른쪽 사진{right_no}]\n{message}"
 
     known = known_observation_block(sanitize_known_observations(req.observations))
-    # 사진 기록은 실험군 프롬프트에만 붙인다. 저장하는 질문 원문에는 넣지 않는다.
-    photo = offload_photo_block(images) if use_agent else ""
-    prompt_message = f"{photo}{known}[이번 말]\n{message}" if (photo or known) else message
+    # 사진 기록은 실험군 Agent Flow가 조회한다. 저장하는 질문 원문에는 넣지 않는다.
+    prompt_message = f"{known}[이번 말]\n{message}" if known else message
 
     support_level: Optional[int] = None
     last_tool_id = 0
     if use_agent:
-        agent_message = build_support_message(prompt_message, images)
+        agent_message = build_support_message(prompt_message, student_id, images)
         last_tool_id = db.get_max_tool_call_id(student_id)
-        db.log_tool_call(
-            student_id=student_id,
-            tool_name="offload_photos",
-            input_text=",".join(images),
-            result_summary=f"count={len(images)}, images={','.join(images)}",
-        )
     else:
         # 대조군은 @agent 없이 학생의 말만 보낸다. 사진이 두 장이면 왼쪽·오른쪽 번호만 앞에 붙인다.
         # 이미 적은 관찰 문장은 질문 앞에만 붙이고, 저장하는 질문 원문에는 넣지 않는다.
@@ -562,8 +540,7 @@ async def chat(req: ChatRequest):
     tool_skipped: Optional[bool] = None
     observation_types: Optional[str] = None
     if use_agent:
-        # 이번 턴에 진단 기록 조회와, 관찰 문장이면 유형 기록을 불렀는지 확인한다.
-        # 유형 기록은 답변보다 먼저 실행되므로, 그 값을 지금 만드는 관찰 행에 붙인다.
+        # 사진 자료는 Agent Flow가 /api/tools/offload-photos를 호출할 때 기록된다.
         new_calls = db.get_tool_calls_after(student_id, last_tool_id)
         names = [c["tool_name"] for c in new_calls]
         tools_called = ",".join(names)
@@ -575,10 +552,8 @@ async def chat(req: ChatRequest):
         if recorded:
             observation_types = json.dumps(recorded[-1], ensure_ascii=False)
         missing = []
-        if "diagnosis_records" not in names:
-            missing.append("diagnosis_records")
-        if input_kind == "sentence" and "support_sentence_type" not in names:
-            missing.append("support_sentence_type")
+        if "offload_photos" not in names:
+            missing.append("offload_photos")
         tool_skipped = bool(missing)
         if tool_skipped:
             db.log_tool_call(
