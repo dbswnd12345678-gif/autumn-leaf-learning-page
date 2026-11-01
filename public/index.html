@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>단풍현상 관찰 학습</title>
-<link rel="stylesheet" href="style.css?v=21" />
+<link rel="stylesheet" href="style.css?v=22" />
 </head>
 <body class="mode-assess">
   <header class="app-header">
@@ -22,8 +22,9 @@
 
   <div class="student-id-bar" id="student-id-bar">
     <label for="student-id-input">학번(학생 번호)</label>
-    <input type="text" id="student-id-input" placeholder="예: 1-05" />
+    <input type="text" id="student-id-input" name="student-number-entry" placeholder="예: 1-05" autocomplete="off" autocapitalize="off" spellcheck="false" />
     <button type="button" id="student-id-save-btn">확인</button>
+    <button type="button" id="student-id-reset-btn" class="student-id-reset" hidden>다시 입력</button>
     <span class="student-id-status" id="student-id-status">학번을 입력하고 확인을 눌러주세요.</span>
   </div>
   <div class="notice" id="notice" hidden></div>
@@ -131,7 +132,7 @@
     </section>
   </main>
 
-  <script src="script.js?v=34"></script>
+  <script src="script.js?v=35"></script>
   <script src="measure.js?v=7"></script>
 </body>
 </html>

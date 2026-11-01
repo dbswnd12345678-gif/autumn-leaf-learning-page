@@ -106,6 +106,16 @@ body {
   background: #a5451590;
 }
 
+.student-id-bar button.student-id-reset {
+  background: #fff;
+  color: #8a4a12;
+  border: 1px solid #ddb98a;
+}
+
+.student-id-bar button.student-id-reset:hover {
+  background: #fff7ee;
+}
+
 .student-id-status {
   color: #5a6b4a;
 }

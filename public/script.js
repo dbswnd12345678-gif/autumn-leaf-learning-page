@@ -108,6 +108,7 @@ const timerEl = $("timer");
 const noticeEl = $("notice");
 const studentIdInput = $("student-id-input");
 const studentIdSaveBtn = $("student-id-save-btn");
+const studentIdResetBtn = $("student-id-reset-btn");
 const studentIdStatus = $("student-id-status");
 
 let currentMode = localStorage.getItem("autumn_leaf_mode_v3") || "assess";
@@ -131,19 +132,27 @@ function getSessionId() {
 }
 const sessionId = getSessionId();
 
+// 학번은 이 창에서 확인을 누른 뒤에만 유지한다.
+// 링크를 새로 열면 이전에 저장해 둔 학번을 칸에 채우지 않는다.
+let studentIdValue = "";
+localStorage.removeItem("autumn_leaf_student_id");
+
 function getStudentId() {
-  return localStorage.getItem("autumn_leaf_student_id") || "";
+  return studentIdValue;
 }
 
 function updateStudentIdStatus() {
   const id = getStudentId();
   if (id) {
     studentIdInput.value = id;
-    studentIdStatus.textContent = `현재 학번: ${id}`;
+    studentIdStatus.textContent = `현재 학번: ${id}. 잘못 입력했다면 다시 입력을 누르세요.`;
     studentIdStatus.classList.remove("student-id-missing");
+    studentIdResetBtn.hidden = false;
   } else {
+    studentIdInput.value = "";
     studentIdStatus.textContent = "학번을 입력하고 확인을 눌러주세요.";
     studentIdStatus.classList.add("student-id-missing");
+    studentIdResetBtn.hidden = true;
   }
 }
 
@@ -151,14 +160,23 @@ studentIdSaveBtn.addEventListener("click", async () => {
   const value = studentIdInput.value.trim();
   if (!value) {
     studentIdStatus.textContent = "학번을 입력해주세요.";
+    studentIdStatus.classList.add("student-id-missing");
     return;
   }
   if (anyInProgress() && value !== getStudentId()) {
-    showNotice("진행 중에는 학번을 바꿀 수 없어요.");
+    showNotice("진행 중에는 학번을 바꿀 수 없어요. 다시 입력으로 지운 뒤 적어 주세요.");
     return;
   }
-  localStorage.setItem("autumn_leaf_student_id", value);
+  studentIdValue = value;
   updateStudentIdStatus();
+  await refresh();
+});
+
+studentIdResetBtn.addEventListener("click", async () => {
+  studentIdValue = "";
+  serverStatus = null;
+  updateStudentIdStatus();
+  studentIdInput.focus();
   await refresh();
 });
 
