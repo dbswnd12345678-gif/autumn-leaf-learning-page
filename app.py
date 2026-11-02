@@ -1090,7 +1090,6 @@ def tool_offload_photos(
     else:
         notes = diagnosis.offload_photo_notes(None)
         requested = list(catalog)
-    file_rules = " ".join(notes.get("howToUse") or [])
     db.log_tool_call(
         student_id=student_id,
         tool_name="offload_photos",
@@ -1100,15 +1099,10 @@ def tool_offload_photos(
             f"images={','.join(requested) or 'all'}"
         ),
     )
+    # 예전 서버 첨부와 같다. howToUse 목록과 해당 사진만 돌려준다.
     return {
-        **notes,
-        "source": "offload_photos",
-        "requested": requested,
-        "howToUse": (
-            "메시지 태그의 [images: ...]에 있는 파일명만 고르세요. "
-            "이 응답은 offload_photos.json에서 연 탭 2 사진 기록입니다. "
-            + file_rules
-        ),
+        "howToUse": notes.get("howToUse") or [],
+        "photos": notes.get("photos") or {},
     }
 
 
