@@ -113,7 +113,7 @@ def _row_values(row: dict[str, Any]) -> list[Any]:
         mode_label(row.get("mode")),
         row.get("input_kind"),
         ", ".join(row.get("observation_types") or []) if isinstance(row.get("observation_types"), list) else "",
-        row.get("support_level"),
+        {1: "1수준 관찰 문장 정답 제공", 2: "2수준 관찰 방법 안내", 3: "3수준 나의 관찰 문장 검토"}.get(row.get("support_level"), row.get("support_level")),
         row.get("tools_called"),
         ("예" if row.get("tool_skipped") else "") if row.get("tool_skipped") is not None else "",
     ]
@@ -176,6 +176,9 @@ TOOL_NAME_LABELS = {
     "observation_methods": "관찰 유형 및 방법 조회",
     "dialogue_log": "개인별 대화 로그 조회",
     "offload_photos": "탭 2 사진 자료 조회",
+    "offload_agent_delegate": "1수준 관찰 문장 정답 제공",
+    "offload_agent_guide": "2수준 관찰 방법 안내",
+    "offload_agent_assist": "3수준 나의 관찰 문장 검토",
     "support_photos": "탭 3 사진 메모 조회",
     "tool_skipped": "도구 호출 누락(자동 기록)",
 }
@@ -374,6 +377,32 @@ def _performed_text(sentence: Any) -> str:
     return _ability_text(performed, none=not performed)
 
 
+def _add_support_fit_sheet(wb: Workbook, support_fits: list[dict[str, Any]]):
+    ws = wb.create_sheet(title="지원적절")
+    ws.append(["학번", "세션", "평가한 사진", "지원 수준", "적절함", "처음 기록", "수정 시각"])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    level_names = {
+        1: "1수준 관찰 문장 정답 제공",
+        2: "2수준 관찰 방법 안내",
+        3: "3수준 나의 관찰 문장 검토",
+    }
+    for item in support_fits:
+        ws.append(
+            [
+                item.get("student_id"),
+                item.get("session_id"),
+                item.get("rated_thread_key"),
+                level_names.get(item.get("support_level"), item.get("support_level")),
+                "예" if item.get("appropriate") else "아니오",
+                item.get("created_at"),
+                item.get("updated_at"),
+            ]
+        )
+    _autosize(ws)
+    return ws
+
+
 def _add_expectations_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
     ws = wb.create_sheet(title="예상유형")
     ws.append(["학번", "모드", "사진 키", "1번째 사진", "2번째 사진", "예상한 관찰", "수행 유형"])
@@ -437,6 +466,7 @@ def build_admin_xlsx(
     tool_calls: list[dict[str, Any]] | None = None,
     diagnoses: list[dict[str, Any]] | None = None,
     mode_sessions: list[dict[str, Any]] | None = None,
+    support_fits: list[dict[str, Any]] | None = None,
 ) -> bytes:
     wb = Workbook()
     wb.remove(wb.active)
@@ -447,6 +477,8 @@ def build_admin_xlsx(
         _add_mode_sessions_sheet(wb, mode_sessions)
         _add_sentences_sheet(wb, mode_sessions)
         _add_expectations_sheet(wb, mode_sessions)
+    if support_fits:
+        _add_support_fit_sheet(wb, support_fits)
     ws_summary = wb.create_sheet(title="학생목록")
     ws_summary.append(
         [

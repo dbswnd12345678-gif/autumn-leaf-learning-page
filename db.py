@@ -96,6 +96,22 @@ CREATE TABLE IF NOT EXISTS diagnoses (
     payload TEXT NOT NULL,
     UNIQUE (student_id, mode)
 );
+
+-- 실험군이 다음 사진으로 넘어갈 때, 직전 AI Agent 지원이 관찰에 적절했는지 고른 답.
+-- 같은 학생이 같은 사진을 다시 평가하면 답을 덮어쓴다.
+CREATE TABLE IF NOT EXISTS support_fit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    rated_thread_key TEXT NOT NULL,
+    support_level INTEGER,
+    appropriate INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (student_id, rated_thread_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_support_fit_student ON support_fit(student_id);
 """
 
 # 기존 observations 표에 3모드용 칼럼을 덧붙인다(이미 있으면 건너뜀).
@@ -817,6 +833,76 @@ def get_diagnosis(student_id: str, mode: str) -> Optional[dict[str, Any]]:
         return _diagnosis_to_dict(row) if row else None
     finally:
         conn.close()
+
+
+def save_support_fit(
+    student_id: str,
+    session_id: str,
+    rated_thread_key: str,
+    support_level: Optional[int],
+    appropriate: bool,
+) -> dict[str, Any]:
+    """직전 사진의 AI 지원이 적절했는지 저장한다. 같은 사진이면 답을 갱신한다."""
+    conn = get_connection()
+    try:
+        now = now_iso()
+        conn.execute(
+            """
+            INSERT INTO support_fit (
+                student_id, session_id, rated_thread_key, support_level,
+                appropriate, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(student_id, rated_thread_key) DO UPDATE SET
+                session_id = excluded.session_id,
+                support_level = excluded.support_level,
+                appropriate = excluded.appropriate,
+                updated_at = excluded.updated_at
+            """,
+            (
+                student_id,
+                session_id,
+                rated_thread_key,
+                support_level,
+                1 if appropriate else 0,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            """
+            SELECT * FROM support_fit
+            WHERE student_id = ? AND rated_thread_key = ?
+            """,
+            (student_id, rated_thread_key),
+        ).fetchone()
+        return _support_fit_to_dict(row)
+    finally:
+        conn.close()
+
+
+def list_support_fits(student_id: Optional[str] = None) -> list[dict[str, Any]]:
+    conn = get_connection()
+    try:
+        if student_id:
+            rows = conn.execute(
+                "SELECT * FROM support_fit WHERE student_id = ? ORDER BY id ASC",
+                (student_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM support_fit ORDER BY student_id ASC, id ASC"
+            ).fetchall()
+        return [_support_fit_to_dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def _support_fit_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    item = dict(row)
+    item["appropriate"] = bool(item.get("appropriate"))
+    return item
 
 
 def get_all_diagnoses() -> list[dict[str, Any]]:

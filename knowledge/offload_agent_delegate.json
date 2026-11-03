@@ -1,0 +1,2596 @@
+{
+  "version": "0.1",
+  "levelId": "delegate",
+  "levelName": "문장을 대신 써 주는 에이전트",
+  "studentChoiceLabel": "문장을 대신 써 줘",
+  "description": "탭 2에서 관찰 문장 하나를 대신 써 주는 지원 자료. 문장은 offload_photos.json의 해당 사진 예문과 같다. 한 번에 하나만 건넨다.",
+  "fields": {
+    "handoff": "부탁 종류별로 바로 건넬 수 있는 문장. 이 중 하나만 고른다.",
+    "sentences": "이 사진에서 건넬 수 있는 완성 문장 전체. type은 고를 때만 쓰고 학생에게 말하지 않는다.",
+    "doNotAnswer": "답하지 않는 내용. 대신 handoff의 color나 shape에서 문장 하나를 준다.",
+    "examples": "사진마다 관찰 유형별로 나눈 문장. 각 문장은 관찰 수준(1차·2차·3차)과 객관도(0~3)를 가진다."
+  },
+  "howToUse": [
+    "학생에게 점수, 단계, 파일명, 유형 이름, label을 말하지 않는다.",
+    "관찰을 대신 해 달라고 하면 handoff에서 부탁에 맞는 문장 하나만 골라 그대로 말한다.",
+    "한 번에 하나. 문장 목록을 읽어 주지 않고, 직전과 같은 문장을 연속으로 주지 않는다.",
+    "문장 뒤에 '사진에서 관찰한 문장입니다.'만 붙인다.",
+    "학생이 다른 문장을 원하면 같은 사진의 다른 handoff 묶음에서 하나 고른다.",
+    "doNotAnswer는 설명하지 않는다. 그 대신 color나 shape 문장 하나를 준다.",
+    "자신의 문장이나 사실이 맞는지 묻는 말은 이 파일에서 답하지 않는다. 그 지원은 offload_agent_assist.json의 check를 쓴다.",
+    "사진이 두 장이면 요청한 사진 하나만 쓴다. 비교를 부탁하면 그 사진 handoff.compare에 있는 문장만 준다.",
+    "개수는 sentences에 적힌 문장만 말한다. 없는 개수는 만들지 않는다.",
+    "examples는 유형별로 관찰 수준과 객관도를 나눈 문장이다. 학생에게 건넬 때는 정성 유형의 객관도 2, 정량 유형의 객관도 3 중에서 하나만 고른다. 객관도 0과 1은 읽어 주지 않는다. 수준, 객관도, 유형 이름은 말하지 않는다."
+  ],
+  "feedbackElements": [
+    {
+      "id": "give_one",
+      "when": "관찰해 줘, 문장을 써 줘, 뭐가 보이는지 알려 줘.",
+      "say": "사진에서 관찰한 문장입니다."
+    },
+    {
+      "id": "another",
+      "when": "다른 문장도 써 달라고 한다.",
+      "say": "다른 문장으로는 이렇게 적어도 돼요."
+    },
+    {
+      "id": "outside",
+      "when": "원인, 이름, 사진 밖을 묻는다.",
+      "say": "그건 이 사진만으로 적지 않아요. 보이는 모습은 이렇게 적을 수 있어요."
+    }
+  ],
+  "photos": {
+    "l2-03.jpg": {
+      "photoNo": 1,
+      "label": "주황 단풍잎",
+      "doNotAnswer": [
+        "왜 주황색인지",
+        "나무의 종류 이름",
+        "뒤에 흐린 잎의 색이나 개수",
+        "사진 밖 장소",
+        "잔톱니의 개수"
+      ],
+      "handoff": {
+        "color": [
+          "잎 전체는 주황색이다.",
+          "잎 전체의 색이 고르게 주황색이다."
+        ],
+        "shape": [
+          "잎은 여러 갈래로 가늘게 갈라져 있다.",
+          "잎은 손바닥처럼 퍼진 모양이다."
+        ],
+        "part": [
+          "갈래의 끝은 길게 뾰족하다.",
+          "갈래의 가장자리는 잔톱니처럼 보인다.",
+          "잎맥은 밑동에서 갈래 끝으로 뻗어 있다.",
+          "잎자루는 가늘고 붉은빛이 돈다."
+        ],
+        "compare": [
+          "위쪽 갈래와 아래쪽 갈래 모두 주황색으로 같다.",
+          "갈래의 끝은 갈래의 가운데보다 더 뾰족하다.",
+          "잎자루는 갈래보다 가늘다."
+        ],
+        "count": [
+          "잎은 일곱 갈래로 나뉘어 있다.",
+          "큰 잎맥이 일곱 줄기 뻗어 있다.",
+          "잎자루는 하나다."
+        ]
+      },
+      "sentences": [
+        {
+          "type": "정성-단수-전체",
+          "text": "잎 전체는 주황색이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎은 여러 갈래로 가늘게 갈라져 있다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎은 손바닥처럼 퍼진 모양이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎 전체의 색이 고르게 주황색이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎의 갈래가 바깥쪽으로 뻗어 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "갈래의 끝은 길게 뾰족하다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "갈래의 가장자리는 잔톱니처럼 보인다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "잎맥은 밑동에서 갈래 끝으로 뻗어 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "잎자루는 가늘고 붉은빛이 돈다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "갈래의 한가운데로 잎맥이 지나간다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "위쪽 갈래와 아래쪽 갈래 모두 주황색으로 같다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "갈래의 끝은 갈래의 가운데보다 더 뾰족하다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "잎자루는 갈래보다 가늘다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "왼쪽 갈래와 오른쪽 갈래의 색이 비슷하다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "밑동에 가까운 곳과 갈래 끝의 색이 둘 다 주황색이다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎은 일곱 갈래로 나뉘어 있다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎 전체의 거의 전부가 주황색이다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "큰 잎맥이 일곱 줄기 뻗어 있다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎자루는 하나다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "갈래의 뾰족한 끝은 일곱 개다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "한 갈래 안의 큰 잎맥은 한 줄기다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "잎자루는 한 개 보인다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "잎맥이 갈라지기 시작하는 밑동은 한 곳이다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "갈래마다 뾰족한 끝이 하나씩 있다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "갈래 하나의 거의 전부가 주황색이다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "큰 잎맥의 수는 갈래의 수와 같아서 둘 다 일곱이다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "일곱 갈래의 끝이 갈래마다 하나씩이라 끝도 일곱 개다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "어느 갈래나 큰 잎맥은 한 줄기로 같다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "잎자루는 1개이고 갈래는 7개라서 갈래가 더 많다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "갈래 끝의 개수는 갈래의 개수와 같다."
+        }
+      ],
+      "examples": [
+        {
+          "type": "정성-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "잎 전체가 예쁘다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 전체가 크다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "잎 전체는 주황색이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 전체가 크고, 그 안쪽도 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "잎 전체는 주황색이고, 그 안의 갈래도 주황색이다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 전체가 크고, 갈래 안쪽도 넓고, 그 끝도 비슷하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "잎 전체는 주황색이고, 갈래 안쪽도 주황색이며, 그 갈래의 끝도 주황색이다."
+            }
+          ]
+        },
+        {
+          "type": "정성-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "갈래 끝이 멋있다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래 끝이 날카롭다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "갈래의 끝은 길게 뾰족하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래 끝은 날카롭고, 그 가장자리도 거칠다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "갈래의 끝은 길게 뾰족하고, 그 끝의 가장자리는 잔톱니처럼 보인다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래 끝은 날카롭고, 가장자리도 거칠고, 그 톱니 끝도 비슷하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "갈래의 끝은 길게 뾰족하고, 그 끝의 가장자리는 잔톱니처럼 보이며, 잔톱니의 끝도 뾰족하다."
+            }
+          ]
+        },
+        {
+          "type": "정성-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "위아래 갈래가 다 마음에 든다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "위쪽과 아래쪽이 비슷하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "위쪽 갈래와 아래쪽 갈래 모두 주황색으로 같다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "위쪽과 아래쪽이 비슷하고, 그 안쪽도 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "위쪽 갈래와 아래쪽 갈래는 둘 다 주황색이고, 각 갈래의 끝은 가운데보다 더 뾰족하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "위쪽과 아래쪽이 비슷하고, 갈래 안쪽도 비슷하고, 그 끝도 비슷하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "위쪽 갈래와 아래쪽 갈래는 둘 다 주황색이고, 각 갈래의 끝은 가운데보다 더 뾰족하며, 그 끝의 가장자리도 둘 다 잔톱니처럼 보인다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "갈래가 나뉜 모습이 신기하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래가 많다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "잎은 일곱 갈래로 나뉘어 있다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래가 많고, 그 안의 잎맥도 많다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "잎은 일곱 갈래로 나뉘어 있고, 잎맥이 모이는 밑동은 한 곳이다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래가 많고, 잎맥도 많고, 그 끝도 많다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "잎은 일곱 갈래로 나뉘어 있고, 잎맥이 모이는 밑동은 한 곳이며, 그 밑동에서 갈래 끝까지 큰 잎맥이 일곱 줄기 뻗어 있다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "잎자루가 단순해 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎맥이 조금 있다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "한 갈래 안의 큰 잎맥은 한 줄기다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎맥이 조금 있고, 그 끝쪽도 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "한 갈래 안의 큰 잎맥은 한 줄기이고, 그 잎맥은 갈래 끝까지 이어진다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎맥이 조금 있고, 끝쪽도 있고, 밑동은 하나처럼 적다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "한 갈래 안의 큰 잎맥은 한 줄기이고, 그 잎맥은 갈래 끝까지 이어지며, 그 끝은 갈래마다 하나씩이다."
+            }
+          ]
+        },
+        {
+          "type": "정량-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "개수가 같아서 재미있다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래와 잎맥의 수가 비슷하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "큰 잎맥의 수는 갈래의 수와 같아서 둘 다 일곱이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래와 잎맥이 비슷하고, 그 끝의 수도 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "큰 잎맥의 수는 갈래의 수와 같아서 둘 다 일곱이고, 갈래 끝의 개수도 갈래의 개수와 같다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래와 잎맥이 비슷하고, 끝도 비슷하고, 잎자루는 더 적다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "큰 잎맥과 갈래는 둘 다 일곱으로 같고, 갈래 끝도 일곱이며, 잎자루는 1개라서 갈래보다 적다."
+            }
+          ]
+        }
+      ]
+    },
+    "l1-02.jpg": {
+      "photoNo": 2,
+      "label": "색이 나뉜 잎",
+      "doNotAnswer": [
+        "왜 한 잎에 여러 색이 있는지",
+        "나무의 종류 이름",
+        "점의 원인",
+        "점의 정확한 개수",
+        "옆으로 갈라진 잎맥의 개수",
+        "바닥의 돌, 나뭇가지, 다른 낙엽",
+        "사진 밖 장소"
+      ],
+      "handoff": {
+        "color": [
+          "잎 전체는 한 색이 아니라 여러 색으로 나뉘어 있다.",
+          "잎 전체에 붉은색, 노란색, 초록색이 함께 있다.",
+          "왼쪽은 붉은색이고 오른쪽은 노란색이라 서로 다르다."
+        ],
+        "shape": [
+          "잎은 끝이 뾰족한 넓적한 모양이다.",
+          "잎 전체의 가장자리는 매끈하다."
+        ],
+        "part": [
+          "위쪽 끝은 붉고 뾰족하다.",
+          "오른쪽에는 초록색 줄이 있다.",
+          "잎자루는 연두색이다.",
+          "가운데 잎맥이 끝에서 잎자루 쪽으로 이어진다."
+        ],
+        "compare": [
+          "오른쪽의 초록 줄은 그 옆의 노란색과 다르다.",
+          "잎 끝의 색은 잎자루의 연두색과 다르다."
+        ],
+        "count": [
+          "색이 나뉜 구역은 붉은 부분, 노란 부분, 초록 줄로 세 곳이다.",
+          "가운데를 가로지르는 굵은 잎맥은 한 줄기다.",
+          "잎자루는 하나다."
+        ]
+      },
+      "sentences": [
+        {
+          "type": "정성-단수-전체",
+          "text": "잎 전체는 한 색이 아니라 여러 색으로 나뉘어 있다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎은 끝이 뾰족한 넓적한 모양이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎 전체에 붉은색, 노란색, 초록색이 함께 있다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎 표면에 어두운 점들이 있다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎 전체의 가장자리는 매끈하다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "위쪽 끝은 붉고 뾰족하다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "오른쪽에는 초록색 줄이 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "가장자리는 톱니 없이 매끈하다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "잎자루는 연두색이다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "가운데 잎맥이 끝에서 잎자루 쪽으로 이어진다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "왼쪽은 붉은색이고 오른쪽은 노란색이라 서로 다르다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "오른쪽의 초록 줄은 그 옆의 노란색과 다르다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "잎 끝의 색은 잎자루의 연두색과 다르다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "위쪽 끝은 아래쪽보다 뾰족하다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "가운데 잎맥은 주변 잎몸보다 선으로 뚜렷하다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎의 왼쪽 절반 정도는 붉은색이다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "색이 나뉜 구역은 붉은 부분, 노란 부분, 초록 줄로 세 곳이다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎자루는 하나다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "가운데를 가로지르는 굵은 잎맥은 한 줄기다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "초록색 줄은 잎 전체의 절반보다 좁다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "가운데 잎맥은 한 줄기다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "초록색 줄은 오른쪽에 하나 있다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "잎 끝은 하나다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "잎자루는 한 개다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "붉은색이 모인 왼쪽의 폭은 잎의 절반 정도다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "붉은 부분은 잎의 절반 정도이고, 오른쪽의 노란 부분도 절반 정도라 둘의 폭이 비슷하다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "초록 줄의 폭은 오른쪽 노란 부분의 절반보다 좁다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "색 구역은 세 곳이고, 초록 줄은 붉은 부분보다도 노란 부분보다도 좁다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "끝은 하나이고 잎자루도 하나라서 둘의 개수가 같다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "왼쪽 붉은 부분은 절반 정도이고, 초록 줄은 그 절반보다 좁다."
+        }
+      ],
+      "examples": [
+        {
+          "type": "정성-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "잎 전체가 신기하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 전체의 색이 여러 가지다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "잎 전체는 한 색이 아니라 여러 색으로 나뉘어 있다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 전체가 알록달록하고, 그 안쪽도 그렇다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "잎 전체는 여러 색으로 나뉘어 있고, 그 안의 왼쪽은 붉은색이다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 전체가 알록달록하고, 안쪽도 그렇고, 그 오른쪽도 그렇다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "잎 전체는 여러 색으로 나뉘어 있고, 왼쪽은 붉은색이며, 그 오른쪽은 노란색이다."
+            }
+          ]
+        },
+        {
+          "type": "정성-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "잎 끝이 멋있다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 끝이 날카롭다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "위쪽 끝은 붉고 뾰족하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "끝은 날카롭고, 그 가장자리도 밋밋하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "위쪽 끝은 붉고 뾰족하고, 그 끝에서 이어진 가장자리는 톱니 없이 매끈하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "끝은 날카롭고, 가장자리는 밋밋하고, 그 옆 줄도 다르다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "위쪽 끝은 붉고 뾰족하고, 가장자리는 톱니 없이 매끈하며, 오른쪽 가장자리 옆에는 초록색 줄이 있다."
+            }
+          ]
+        },
+        {
+          "type": "정성-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "왼쪽과 오른쪽이 다 마음에 든다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 다르다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "왼쪽은 붉은색이고 오른쪽은 노란색이라 서로 다르다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 다르고, 그 안의 줄도 다르다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "왼쪽은 붉은색이고 오른쪽은 노란색이며, 오른쪽 안의 초록 줄은 그 옆의 노란색과 다르다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 다르고, 오른쪽 안도 다르고, 끝과 잎자루도 다르다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "왼쪽은 붉은색이고 오른쪽은 노란색이며, 오른쪽의 초록 줄은 노란색과 다르고, 잎 끝의 색은 잎자루의 연두색과 다르다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "색이 나뉜 모습이 신기하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "색이 나뉜 곳이 많다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "색이 나뉜 구역은 붉은 부분, 노란 부분, 초록 줄로 세 곳이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "색이 나뉜 곳이 많고, 그 안의 한쪽이 더 넓다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "색이 나뉜 구역은 세 곳이고, 그중 왼쪽 붉은 부분의 폭은 잎의 절반 정도다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "색이 나뉜 곳이 많고, 한쪽이 넓고, 그 안의 줄은 좁다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "색이 나뉜 구역은 세 곳이고, 왼쪽 붉은 부분은 절반 정도이며, 오른쪽의 초록 줄은 그 절반보다 좁다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "가운데 줄이 단순해 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "가운데 줄이 조금 있다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "가운데 잎맥은 한 줄기다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "가운데 줄이 있고, 그 오른쪽에 줄이 조금 있다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "가운데 잎맥은 한 줄기이고, 오른쪽의 초록색 줄은 하나다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "가운데 줄이 있고, 오른쪽 줄이 조금 있고, 끝은 적다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "가운데 잎맥은 한 줄기이고, 오른쪽의 초록색 줄은 하나이며, 잎 끝은 하나다."
+            }
+          ]
+        },
+        {
+          "type": "정량-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "양쪽 폭이 비슷해서 균형 있어 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "양쪽의 폭이 비슷하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "붉은 부분은 잎의 절반 정도이고, 오른쪽의 노란 부분도 절반 정도라 둘의 폭이 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "양쪽 폭이 비슷하고, 그 안의 초록 줄은 더 좁다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "붉은 부분과 노란 부분은 각각 절반 정도이고, 그 안의 초록 줄은 노란 부분의 절반보다 좁다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "양쪽은 비슷하고, 초록 줄은 더 좁고, 끝과 잎자루의 개수는 비슷하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "붉은 부분과 노란 부분은 각각 절반 정도이고, 초록 줄은 그보다 좁으며, 끝은 하나이고 잎자루도 하나라서 개수가 같다."
+            }
+          ]
+        }
+      ]
+    },
+    "l4-04.jpg": {
+      "photoNo": 3,
+      "label": "초록 은행잎",
+      "doNotAnswer": [
+        "왜 초록색인지",
+        "품종 이름",
+        "보이지 않는 잎 뒷면",
+        "사진 배경",
+        "나란히 뻗은 잎맥의 개수"
+      ],
+      "handoff": {
+        "color": [
+          "잎 전체는 초록색이다.",
+          "잎 전체의 색이 고르게 초록색이다."
+        ],
+        "shape": [
+          "잎은 부채 모양이다.",
+          "잎은 위로 갈수록 퍼진 부채꼴이다."
+        ],
+        "part": [
+          "위쪽 가장자리 가운데가 갈라져 있다.",
+          "가장자리는 물결처럼 굽어 있다.",
+          "잎맥은 밑동에서 가장자리 쪽으로 나란히 뻗어 있다.",
+          "잎자루는 가늘고 길다."
+        ],
+        "compare": [
+          "위쪽은 아래쪽보다 넓고 가운데가 갈라져 있다.",
+          "왼쪽과 오른쪽의 모양이 서로 비슷하다.",
+          "잎자루는 잎몸보다 가늘다."
+        ],
+        "count": [
+          "위쪽이 갈라진 곳은 한 군데다.",
+          "잎자루는 하나다.",
+          "잎은 한 장이다."
+        ]
+      },
+      "sentences": [
+        {
+          "type": "정성-단수-전체",
+          "text": "잎 전체는 초록색이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎은 부채 모양이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎은 한 장으로 둥글게 퍼져 있다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎 전체의 색이 고르게 초록색이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎은 위로 갈수록 퍼진 부채꼴이다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "위쪽 가장자리 가운데가 갈라져 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "가장자리는 물결처럼 굽어 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "잎맥은 밑동에서 가장자리 쪽으로 나란히 뻗어 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "잎자루는 가늘고 길다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "갈라진 곳의 양쪽 가장자리는 둥글다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "위쪽은 아래쪽보다 넓고 가운데가 갈라져 있다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "왼쪽과 오른쪽의 모양이 서로 비슷하다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "잎자루는 잎몸보다 가늘다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "가장자리의 굴곡은 잎맥의 곧은 선과 다르다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "갈라진 곳의 왼쪽과 오른쪽은 둘 다 초록색으로 같다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎은 한 장이다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎 전체의 전부가 초록색이다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "위쪽이 갈라진 곳은 한 군데다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎자루는 하나다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎맥이 모이는 밑동은 한 곳이다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "위쪽 가장자리는 한 곳이 갈라져 있다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "갈라진 곳은 위쪽을 두 편으로 나눈다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "잎자루는 한 개다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "잎맥은 밑동의 한 점에서 퍼진다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "갈라진 깊이는 잎 길이의 절반에 못 미친다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "왼쪽과 오른쪽은 각각 잎의 절반 정도다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "위쪽은 두 편으로 나뉘고, 그 경계의 갈라진 곳은 하나다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "잎자루는 1개이고 위쪽이 갈라진 곳도 1곳이라 개수가 같다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "잎자루 1개에 비해 위쪽이 갈라진 편은 2개다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "왼쪽 절반과 오른쪽 절반 모두 초록색이라 색이 있는 비율이 같다."
+        }
+      ],
+      "examples": [
+        {
+          "type": "정성-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "잎 전체가 싱싱해 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 전체가 넓다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "잎 전체는 초록색이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 전체가 넓고, 그 위쪽도 넓다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "잎 전체는 초록색이고, 그 안의 위쪽도 초록색이다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "잎 전체가 넓고, 위쪽도 넓고, 그 가운데도 비슷하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "잎 전체는 초록색이고, 위쪽도 초록색이며, 위쪽 가운데가 갈라진 곳도 초록색이다."
+            }
+          ]
+        },
+        {
+          "type": "정성-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "위쪽이 재미있다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "위쪽이 갈라진 편이다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "위쪽 가장자리 가운데가 갈라져 있다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "위쪽이 갈라져 있고, 그 가장자리는 울퉁불퉁하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "위쪽 가장자리 가운데가 갈라져 있고, 그 갈라진 곳의 양쪽 가장자리는 둥글다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "위쪽이 갈라져 있고, 가장자리는 울퉁불퉁하고, 그 아랫줄도 많다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "위쪽 가장자리 가운데가 갈라져 있고, 그 양쪽 가장자리는 둥글며, 그 아래에서 잎맥이 가장자리 쪽으로 나란히 뻗어 있다."
+            }
+          ]
+        },
+        {
+          "type": "정성-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "왼쪽과 오른쪽이 다 마음에 든다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 비슷하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "왼쪽과 오른쪽의 모양이 서로 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 비슷하고, 그 위쪽도 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "왼쪽과 오른쪽의 모양이 서로 비슷하고, 갈라진 곳의 왼쪽과 오른쪽은 둘 다 초록색으로 같다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 비슷하고, 위쪽도 비슷하고, 잎자루는 더 가늘다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "왼쪽과 오른쪽의 모양이 서로 비슷하고, 갈라진 곳의 양쪽은 둘 다 초록색이며, 잎자루는 잎몸보다 가늘다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "잎 전체가 단정해 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈라진 곳이 적다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "위쪽이 갈라진 곳은 한 군데다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈라진 곳이 적고, 그 깊이는 얕다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "위쪽이 갈라진 곳은 한 군데이고, 갈라진 깊이는 잎 길이의 절반에 못 미친다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈라진 곳이 적고, 깊이는 얕고, 잎자루도 적다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "위쪽이 갈라진 곳은 한 군데이고, 깊이는 잎 길이의 절반에 못 미치며, 잎자루는 하나다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "갈라진 곳이 보기 좋다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "위쪽이 조금 갈라져 있다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "위쪽 가장자리는 한 곳이 갈라져 있다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "위쪽이 조금 갈라져 있고, 그 나뉜 폭은 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "위쪽 가장자리는 한 곳이 갈라져 있고, 갈라진 곳은 위쪽을 두 편으로 나눈다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "위쪽이 조금 갈라져 있고, 두 편으로 나뉘며, 그 깊이는 얕다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "위쪽 가장자리는 한 곳이 갈라져 두 편으로 나뉘고, 그 갈라진 깊이는 잎 길이의 절반에 못 미친다."
+            }
+          ]
+        },
+        {
+          "type": "정량-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "양쪽이 반반이라서 균형 있어 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽의 크기가 비슷하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "왼쪽과 오른쪽은 각각 잎의 절반 정도다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 비슷하고, 그 경계는 하나다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "왼쪽과 오른쪽은 각각 잎의 절반 정도이고, 그 경계의 갈라진 곳은 하나다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 비슷하고, 경계는 하나이고, 잎자루도 하나처럼 적다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "왼쪽과 오른쪽은 각각 절반 정도이고, 갈라진 곳은 하나이며, 잎자루도 하나라서 그 개수가 같다."
+            }
+          ]
+        }
+      ]
+    },
+    "l3-02.jpg": {
+      "photoNo": 4,
+      "label": "가지에 달린 여러 단풍잎",
+      "doNotAnswer": [
+        "왜 잎마다 색이 다른지",
+        "나무의 종류 이름",
+        "구멍의 원인",
+        "구멍의 정확한 개수",
+        "톱니의 개수",
+        "가지의 개수",
+        "흐리거나 가장자리에 잘린 잎의 개수",
+        "배경의 하늘"
+      ],
+      "handoff": {
+        "color": [
+          "앞에 또렷한 잎은 붉은 주황색이다.",
+          "앞에 또렷한 잎에 초록색이 일부 남아 있다."
+        ],
+        "shape": [
+          "앞에 있는 잎은 여러 갈래로 깊게 나뉘어 있다."
+        ],
+        "part": [
+          "앞 잎의 갈래 끝은 뾰족하다.",
+          "앞 잎의 가장자리는 톱니처럼 뾰족하다.",
+          "앞 잎에 구멍이 나 있다.",
+          "앞 잎의 잎자루는 가지 쪽으로 이어져 있다."
+        ],
+        "compare": [
+          "앞의 잎은 위의 잎보다 더 붉다.",
+          "옆의 초록 잎은 앞의 붉은 잎과 색이 다르다.",
+          "앞 잎의 가장자리는 가운데보다 더 붉다."
+        ],
+        "count": [
+          "앞에 또렷한 잎의 절반 이상은 붉은 주황색이다.",
+          "앞 잎의 잎자루는 하나다."
+        ]
+      },
+      "sentences": [
+        {
+          "type": "정성-단수-전체",
+          "text": "앞에 또렷한 잎은 붉은 주황색이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "앞에 있는 잎은 여러 갈래로 깊게 나뉘어 있다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "앞에 또렷한 잎에 초록색이 일부 남아 있다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "앞에 있는 잎은 가지에 달려 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "앞 잎의 갈래 끝은 뾰족하다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "앞 잎의 가장자리는 톱니처럼 뾰족하다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "앞 잎에 구멍이 나 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "앞 잎의 잎자루는 가지 쪽으로 이어져 있다."
+        },
+        {
+          "type": "정성-다수-전체",
+          "text": "앞의 잎은 위의 잎보다 더 붉다."
+        },
+        {
+          "type": "정성-다수-전체",
+          "text": "앞 잎과 위의 초록 잎 모두 갈래로 나뉜 점이 같다."
+        },
+        {
+          "type": "정성-다수-전체",
+          "text": "옆의 초록 잎은 앞의 붉은 잎과 색이 다르다."
+        },
+        {
+          "type": "정성-다수-전체",
+          "text": "앞 잎과 위 잎은 둘 다 가지에 달린 점이 같다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "앞 잎의 가장자리는 가운데보다 더 붉다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "앞 잎에서 구멍 난 곳은 구멍 없는 곳과 모양이 다르다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "앞 잎의 끝은 잎자루보다 뾰족하다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "앞 잎에서 붉은 부분과 남은 초록 부분의 색이 다르다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "앞에 또렷한 잎의 절반 이상은 붉은 주황색이다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "앞 잎에 남은 초록색은 그 잎의 절반보다 좁다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "앞 잎의 잎자루는 하나다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "앞 잎의 잎자루는 한 개다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "앞 잎에서 초록이 남은 곳은 절반을 넘지 않는다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "앞 잎의 밑동에서 잎맥이 갈라지는 시작점은 한 곳이다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "앞 잎의 갈래가 모이는 중심은 한 곳이다."
+        },
+        {
+          "type": "정량-다수-전체",
+          "text": "앞 잎은 절반 이상이 붉고, 옆의 초록 잎은 거의 전부가 초록이다."
+        },
+        {
+          "type": "정량-다수-전체",
+          "text": "앞 잎의 잎자루는 하나이고, 옆의 초록 잎도 가지에 붙는 잎자루가 하나다."
+        },
+        {
+          "type": "정량-다수-전체",
+          "text": "앞 잎에서 붉은 부분이 차지하는 비율은 절반을 넘고, 옆의 초록 잎에서 초록이 차지하는 비율은 거의 전부다."
+        },
+        {
+          "type": "정량-다수-전체",
+          "text": "위의 초록 잎은 초록이 절반을 넘고, 앞의 붉은 잎은 붉은색이 절반을 넘는다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "앞 잎의 붉은 부분은 절반 이상이고, 같은 잎의 초록 부분은 절반 미만이다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "앞 잎의 끝으로 모이는 잎자루는 하나이고, 갈래 끝은 그보다 많다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "앞 잎에서 붉은 부분의 넓이는 남은 초록 부분보다 크고, 붉은 부분이 절반을 넘는다."
+        }
+      ],
+      "examples": [
+        {
+          "type": "정성-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "앞에 있는 잎이 멋지다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞에 있는 잎의 색이 진하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞에 또렷한 잎은 붉은 주황색이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞에 있는 잎의 색이 진하고, 그 안에 다른 색도 조금 있다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞에 또렷한 잎은 붉은 주황색이고, 그 안에 초록색이 일부 남아 있다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞에 있는 잎의 색이 진하고, 안에 다른 색이 있고, 그 가장자리는 더 진하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞에 또렷한 잎은 붉은 주황색이고, 그 안에 초록색이 일부 남아 있으며, 가장자리는 가운데보다 더 붉다."
+            }
+          ]
+        },
+        {
+          "type": "정성-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "구멍이 신기하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "가장자리가 거칠다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞 잎의 가장자리는 톱니처럼 뾰족하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "가장자리가 거칠고, 그 안쪽에 구멍이 있다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞 잎의 가장자리는 톱니처럼 뾰족하고, 그 잎 안에 구멍이 나 있다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "가장자리가 거칠고, 안쪽에 구멍이 있고, 그 끝은 날카롭다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞 잎의 가장자리는 톱니처럼 뾰족하고, 그 잎 안에 구멍이 나 있으며, 갈래의 끝은 뾰족하다."
+            }
+          ]
+        },
+        {
+          "type": "정성-다수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "앞 잎이 더 마음에 든다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞 잎과 위의 잎이 다르다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞의 잎은 위의 잎보다 더 붉다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞 잎과 위의 잎이 다르고, 그 안의 색도 다르다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞의 잎은 위의 잎보다 더 붉고, 앞 잎 안에는 초록색이 일부 남아 있다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞 잎과 위의 잎이 다르고, 앞 잎 안도 다르고, 옆 잎도 다르다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞의 잎은 위의 잎보다 더 붉고, 앞 잎 안에는 초록이 남아 있으며, 옆의 초록 잎은 앞의 붉은 잎과 색이 다르다."
+            }
+          ]
+        },
+        {
+          "type": "정성-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "가장자리가 더 예뻐 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "가장자리와 가운데가 다르다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞 잎의 가장자리는 가운데보다 더 붉다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "가장자리와 가운데가 다르고, 구멍 난 곳도 다르다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞 잎의 가장자리는 가운데보다 더 붉고, 구멍 난 곳은 구멍 없는 곳과 모양이 다르다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "가장자리와 가운데가 다르고, 구멍 난 곳도 다르고, 끝과 잎자루도 다르다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞 잎의 가장자리는 가운데보다 더 붉고, 구멍 난 곳은 모양이 다르며, 앞 잎의 끝은 잎자루보다 뾰족하다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "빨간 부분이 넓어서 따뜻해 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞에 있는 잎은 빨간 부분이 많다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞에 또렷한 잎의 절반 이상은 붉은 주황색이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "빨간 부분이 많고, 그 안의 초록은 적다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞에 또렷한 잎의 절반 이상은 붉은 주황색이고, 그 안에 남은 초록색은 절반보다 좁다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "빨간 부분이 많고, 초록은 적고, 잎자루는 하나처럼 적다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞에 또렷한 잎의 절반 이상은 붉은 주황색이고, 남은 초록색은 절반보다 좁으며, 잎자루는 하나다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "잎자루가 단순해 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "초록이 남은 곳이 좁다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞 잎에서 초록이 남은 곳은 절반을 넘지 않는다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "초록이 남은 곳이 좁고, 그 중심은 하나다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞 잎에서 초록이 남은 곳은 절반을 넘지 않고, 갈래가 모이는 중심은 한 곳이다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "초록이 남은 곳이 좁고, 중심은 하나이고, 잎자루도 하나처럼 적다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞 잎에서 초록이 남은 곳은 절반을 넘지 않고, 갈래가 모이는 중심은 한 곳이며, 잎자루는 하나다."
+            }
+          ]
+        },
+        {
+          "type": "정량-다수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "앞 잎이 더 빨개서 돋보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞 잎은 더 빨갛고 옆 잎은 더 초록에 가깝다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞 잎은 절반 이상이 붉고, 옆의 초록 잎은 거의 전부가 초록이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞 잎은 더 빨갛고, 그 잎자루 수는 옆 잎과 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞 잎은 절반 이상이 붉고, 앞 잎의 잎자루는 하나이고 옆의 초록 잎도 잎자루가 하나다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞 잎은 더 빨갛고, 잎자루 수는 비슷하고, 색이 차지하는 정도도 다르다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞 잎은 절반 이상이 붉고 옆의 초록 잎은 거의 전부가 초록이며, 두 잎의 잎자루는 각각 하나다."
+            }
+          ]
+        },
+        {
+          "type": "정량-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "빨간 쪽이 더 넓어서 좋아 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "같은 잎에서 빨간 부분이 초록 부분보다 넓다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞 잎의 붉은 부분은 절반 이상이고, 같은 잎의 초록 부분은 절반 미만이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "빨간 부분이 더 넓고, 갈래 끝은 잎자루보다 많아 보인다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞 잎의 붉은 부분은 절반 이상이고 초록 부분은 절반 미만이며, 갈래 끝은 잎자루 하나보다 많다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "빨간 부분이 더 넓고, 그 안의 갈래 끝은 더 많고, 잎자루는 더 적다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "앞 잎의 붉은 부분은 절반 이상이고 초록 부분은 절반 미만이며, 그 붉은 부분 안에서 갈래 끝은 잎자루 하나보다 많다."
+            }
+          ]
+        }
+      ]
+    },
+    "l4-03.jpg": {
+      "photoNo": 5,
+      "label": "초록 단풍잎",
+      "doNotAnswer": [
+        "왜 초록색인지",
+        "나무의 종류 이름",
+        "위의 가지",
+        "가장자리에 잘리거나 흐린 다른 잎",
+        "사진 밖 장소",
+        "작은 톱니의 개수",
+        "가는 잎맥의 개수"
+      ],
+      "handoff": {
+        "color": [
+          "앞에 있는 잎은 초록색이다.",
+          "잎 전체의 색이 고르게 초록색이다."
+        ],
+        "shape": [
+          "잎은 여러 갈래로 나뉘어 있다.",
+          "갈래 사이가 깊게 들어가 있다."
+        ],
+        "part": [
+          "갈래의 끝은 뾰족하다.",
+          "가장자리에는 작은 톱니가 있다.",
+          "잎맥이 밑동에서 갈래로 뻗어 있다.",
+          "잎자루는 위쪽을 향해 짧게 보인다."
+        ],
+        "compare": [
+          "갈래의 끝은 갈래의 밑동보다 더 뾰족하다.",
+          "왼쪽 갈래와 오른쪽 갈래의 색이 둘 다 초록색으로 같다.",
+          "잎자루는 잎몸보다 가늘다."
+        ],
+        "count": [
+          "잎은 다섯 갈래로 나뉘어 있다.",
+          "큰 잎맥이 다섯 줄기 뻗어 있다.",
+          "잎자루는 하나다."
+        ]
+      },
+      "sentences": [
+        {
+          "type": "정성-단수-전체",
+          "text": "앞에 있는 잎은 초록색이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎은 여러 갈래로 나뉘어 있다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎 전체의 색이 고르게 초록색이다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "갈래 사이가 깊게 들어가 있다."
+        },
+        {
+          "type": "정성-단수-전체",
+          "text": "잎은 넓게 퍼진 모양이다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "갈래의 끝은 뾰족하다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "가장자리에는 작은 톱니가 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "잎맥이 밑동에서 갈래로 뻗어 있다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "잎자루는 위쪽을 향해 짧게 보인다."
+        },
+        {
+          "type": "정성-단수-부분",
+          "text": "갈래의 한가운데로 잎맥이 지나간다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "갈래의 끝은 갈래의 밑동보다 더 뾰족하다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "왼쪽 갈래와 오른쪽 갈래의 색이 둘 다 초록색으로 같다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "잎자루는 잎몸보다 가늘다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "갈래 사이는 가장자리의 작은 톱니보다 더 깊게 들어가 있다."
+        },
+        {
+          "type": "정성-다수-부분",
+          "text": "위쪽 갈래와 아래쪽 갈래의 색이 비슷하다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎은 다섯 갈래로 나뉘어 있다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎 전체의 전부가 초록색이다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "큰 잎맥이 다섯 줄기 뻗어 있다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "잎자루는 하나다."
+        },
+        {
+          "type": "정량-단수-전체",
+          "text": "갈래의 뾰족한 끝은 다섯 개다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "한 갈래 안의 큰 잎맥은 한 줄기다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "잎자루는 한 개다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "잎맥이 모이는 밑동은 한 곳이다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "갈래마다 끝이 하나씩 있다."
+        },
+        {
+          "type": "정량-단수-부분",
+          "text": "갈래 하나의 거의 전부가 초록색이다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "큰 잎맥의 수는 갈래의 수와 같아서 둘 다 다섯이다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "잎자루는 1개이고 갈래는 5개라서 갈래가 더 많다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "다섯 갈래의 끝은 갈래마다 하나씩이라 끝도 다섯 개다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "어느 갈래나 큰 잎맥은 한 줄기로 같다."
+        },
+        {
+          "type": "정량-다수-부분",
+          "text": "갈래 끝의 개수는 갈래의 개수와 같다."
+        }
+      ],
+      "examples": [
+        {
+          "type": "정성-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "앞에 있는 잎이 싱싱해 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞에 있는 잎이 넓다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞에 있는 잎은 초록색이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞에 있는 잎이 넓고, 그 안쪽도 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞에 있는 잎은 초록색이고, 그 안의 갈래도 초록색이다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "앞에 있는 잎이 넓고, 갈래도 넓고, 그 끝도 비슷하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "앞에 있는 잎은 초록색이고, 그 안의 갈래도 초록색이며, 갈래의 끝도 초록색이다."
+            }
+          ]
+        },
+        {
+          "type": "정성-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "갈래 끝이 멋있다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래 끝이 날카롭다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "갈래의 끝은 뾰족하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래 끝은 날카롭고, 그 가장자리는 잘게 거칠다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "갈래의 끝은 뾰족하고, 그 가장자리에는 작은 톱니가 있다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래 끝은 날카롭고, 가장자리는 거칠고, 그 안쪽 잎맥도 있다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "갈래의 끝은 뾰족하고, 그 가장자리에는 작은 톱니가 있으며, 갈래의 한가운데로 잎맥이 지나간다."
+            }
+          ]
+        },
+        {
+          "type": "정성-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "양쪽 갈래가 다 마음에 든다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽 갈래와 오른쪽 갈래가 비슷하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "왼쪽 갈래와 오른쪽 갈래의 색이 둘 다 초록색으로 같다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 비슷하고, 그 끝은 더 날카롭다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "왼쪽 갈래와 오른쪽 갈래는 둘 다 초록색이고, 갈래의 끝은 갈래의 밑동보다 더 뾰족하다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "왼쪽과 오른쪽이 비슷하고, 끝은 더 날카롭고, 잎자루는 더 가늘다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 2,
+              "objectivityLabel": "정성적 관찰",
+              "text": "왼쪽 갈래와 오른쪽 갈래는 둘 다 초록색이고, 갈래의 끝은 밑동보다 더 뾰족하며, 잎자루는 잎몸보다 가늘다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-전체",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "갈래가 나뉜 모습이 신기하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래가 많다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "잎은 다섯 갈래로 나뉘어 있다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래가 많고, 그 안의 잎맥도 많다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "잎은 다섯 갈래로 나뉘어 있고, 갈래마다 큰 잎맥이 한 줄기 뻗어 있다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래가 많고, 잎맥도 많고, 그 끝도 많다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "잎은 다섯 갈래로 나뉘어 있고, 갈래마다 큰 잎맥이 한 줄기이며, 뾰족한 끝도 다섯 개다."
+            }
+          ]
+        },
+        {
+          "type": "정량-단수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "잎자루가 단순해 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "한 갈래 안의 잎맥이 적다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "한 갈래 안의 큰 잎맥은 한 줄기다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "한 갈래 안의 잎맥이 적고, 그 끝은 하나처럼 적다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "한 갈래 안의 큰 잎맥은 한 줄기이고, 갈래마다 끝이 하나씩 있다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "한 갈래 안의 잎맥이 적고, 끝도 적고, 밑동은 하나다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "한 갈래 안의 큰 잎맥은 한 줄기이고, 갈래마다 끝이 하나씩 있으며, 잎맥이 모이는 밑동은 한 곳이다."
+            }
+          ]
+        },
+        {
+          "type": "정량-다수-부분",
+          "sentences": [
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 0,
+              "objectivityLabel": "관찰 아님",
+              "text": "수가 같아서 정리돼 보인다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래와 잎맥의 수가 비슷하다."
+            },
+            {
+              "level": 1,
+              "levelLabel": "1차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "큰 잎맥의 수는 갈래의 수와 같아서 둘 다 다섯이다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래와 잎맥이 비슷하고, 그 끝의 수도 비슷하다."
+            },
+            {
+              "level": 2,
+              "levelLabel": "2차 정보",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "큰 잎맥의 수는 갈래의 수와 같아서 둘 다 다섯이고, 갈래 끝의 개수도 갈래의 개수와 같다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 1,
+              "objectivityLabel": "부정확한 관찰",
+              "text": "갈래와 잎맥이 비슷하고, 끝도 비슷하고, 잎자루는 더 적다."
+            },
+            {
+              "level": 3,
+              "levelLabel": "3차 이상",
+              "objectivity": 3,
+              "objectivityLabel": "정량적 관찰",
+              "text": "큰 잎맥과 갈래와 갈래 끝은 모두 다섯으로 같고, 잎자루는 1개라서 갈래보다 적다."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "exampleScale": {
+    "level": {
+      "1": "1차 정보",
+      "2": "2차 정보",
+      "3": "3차 이상"
+    },
+    "objectivity": {
+      "0": "관찰 아님",
+      "1": "부정확한 관찰",
+      "2": "정성적 관찰",
+      "3": "정량적 관찰"
+    },
+    "note": "객관도 0은 관찰이 아니므로 1차 정보만 둔다. 정성 유형은 객관도 2까지, 정량 유형은 객관도 1과 3을 둔다. 객관도 3은 측정이 정량인 문장만 해당한다."
+  }
+}

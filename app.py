@@ -59,7 +59,16 @@ WORKSPACE_SLUGS = {
     "judge": os.environ.get("WS_SLUG_JUDGE", ""),
     # 대조군(A) 탭 2. Agent 없이 학생의 말만 보내는 생성형 AI 워크스페이스.
     "control": os.environ.get("WS_SLUG_CONTROL", ""),
+    # 실험군(B) 탭 2. 학생이 고른 도움 수준마다 워크스페이스가 다르다.
+    "support_delegate": os.environ.get("WS_SLUG_SUPPORT_DELEGATE", ""),
+    "support_guide": os.environ.get("WS_SLUG_SUPPORT_GUIDE", ""),
+    "support_assist": os.environ.get("WS_SLUG_SUPPORT_ASSIST", ""),
 }
+# 저장 번호와 화면 수준이 같다.
+# delegate 1 = 1수준 관찰 문장 정답 제공
+# guide 2 = 2수준 관찰 방법 안내
+# assist 3 = 3수준 나의 관찰 문장 검토
+SUPPORT_LEVELS = {"delegate": 1, "guide": 2, "assist": 3}
 STUDY_GROUPS = ("A", "B")
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 # AnythingLLM Agent Flow의 "API Call"이 /api/tools/*를 호출할 때 X-Tool-Key 헤더로 보내는 비밀 키.
@@ -105,6 +114,13 @@ if not WORKSPACE_SLUGS["control"]:
     print("[경고] WS_SLUG_CONTROL 이 없어 대조군(A) 탭 2 대화를 쓸 수 없습니다.")
 if not (WORKSPACE_SLUGS["support"] or LEGACY_WORKSPACE_SLUG):
     print("[경고] WS_SLUG_SUPPORT 가 없어 실험군(B) 탭 2 대화를 쓸 수 없습니다.")
+for _level_key, _env_name in (
+    ("support_delegate", "WS_SLUG_SUPPORT_DELEGATE"),
+    ("support_guide", "WS_SLUG_SUPPORT_GUIDE"),
+    ("support_assist", "WS_SLUG_SUPPORT_ASSIST"),
+):
+    if not WORKSPACE_SLUGS[_level_key]:
+        print(f"[경고] {_env_name} 이 없어 실험군 도움 수준 대화를 쓸 수 없습니다.")
 if not ADMIN_KEY:
     print("[경고] ADMIN_KEY 환경변수가 설정되지 않았습니다. /api/admin/* 를 쓸 수 없습니다.")
 
@@ -374,6 +390,17 @@ class SessionStartRequest(BaseModel):
     mode: str
 
 
+class SupportFitRequest(BaseModel):
+    studentId: str
+    sessionId: str
+    ratedThreadKey: str
+    supportLevel: str = ""
+    appropriate: bool
+
+
+_THREAD_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._|-]{1,80}$")
+
+
 @app.post("/api/session/start")
 def session_start(req: SessionStartRequest):
     student_id = sanitize_id(req.studentId)
@@ -395,6 +422,32 @@ def session_start(req: SessionStartRequest):
         images=MODE_IMAGES[mode],
     )
     return mode_status(student_id, mode)
+
+
+@app.post("/api/support-fit")
+def save_support_fit(req: SupportFitRequest):
+    """다음 사진으로 넘어갈 때, 직전 AI Agent 지원이 관찰에 적절했는지 저장한다."""
+    student_id = sanitize_id(req.studentId)
+    session_id = sanitize_id(req.sessionId)
+    if not student_id or not session_id:
+        raise HTTPException(400, "studentId와 sessionId가 필요합니다.")
+    if db.get_study_group(student_id) != "B":
+        raise HTTPException(403, "실험군 탭 2에서만 기록합니다.")
+    require_active_session(student_id, "offload")
+    rated_key = (req.ratedThreadKey or "").strip()
+    if not _THREAD_KEY_PATTERN.fullmatch(rated_key) or rated_key == "none":
+        raise HTTPException(400, "평가할 사진을 확인하지 못했습니다.")
+    level_id = (req.supportLevel or "").strip()
+    if level_id and level_id not in SUPPORT_LEVELS:
+        raise HTTPException(400, "지원 수준을 확인하지 못했습니다.")
+    saved = db.save_support_fit(
+        student_id,
+        session_id,
+        rated_key,
+        SUPPORT_LEVELS.get(level_id) if level_id else None,
+        bool(req.appropriate),
+    )
+    return {"ok": True, "appropriate": saved["appropriate"]}
 
 
 # ---------------------------------------------------------------------------
@@ -441,8 +494,8 @@ def build_support_message(
     images: Optional[list[str]] = None,
 ) -> str:
     # AnythingLLM은 메시지 앞에 "@agent"가 있어야 Agent Flow를 부른다.
-    # 사진 기록은 서버가 붙이지 않는다. "탭 2 사진 자료 조회" Flow가
-    # [studentId: ...]와 [images: ...]를 읽어 /api/tools/offload-photos를 호출한다.
+    # 사진 기록은 서버가 붙이지 않는다. 지원 수준 Flow가
+    # [studentId: ...]와 [images: ...]를 읽어 /api/tools/offload-agent를 호출한다.
     names = [name for name in (images or []) if name]
     image_tag = f" [images: {','.join(names)}]" if names else ""
     return f"@agent [studentId: {student_id}]{image_tag}\n\n{student_message}"
@@ -460,6 +513,8 @@ class ChatRequest(BaseModel):
     images: Optional[list[str]] = None
     # 이번 사진에 학생이 이미 적어 둔 관찰 문장. 답변을 만들지 않고, 질문할 때만 함께 보여 준다.
     observations: Optional[list[Any]] = None
+    # 실험군이 고른 도움 수준. delegate, guide, assist.
+    supportLevel: Optional[str] = None
 
 
 @app.post("/api/chat")
@@ -486,10 +541,17 @@ async def chat(req: ChatRequest):
 
     session = require_active_session(student_id, mode)
     use_agent = study_group == "B"
-    slug = workspace_slug("support" if use_agent else "control")
-    if not slug:
-        missing = "WS_SLUG_SUPPORT" if use_agent else "WS_SLUG_CONTROL"
-        raise HTTPException(500, f"{missing} 워크스페이스가 설정되지 않았습니다.")
+    support_level_id = (req.supportLevel or "").strip()
+    if use_agent:
+        if support_level_id not in SUPPORT_LEVELS:
+            raise HTTPException(400, "도움을 받을 정도를 먼저 골라 주세요.")
+        slug = WORKSPACE_SLUGS[f"support_{support_level_id}"]
+        if not slug:
+            raise HTTPException(500, f"WS_SLUG_SUPPORT_{support_level_id.upper()} 워크스페이스가 설정되지 않았습니다.")
+    else:
+        slug = workspace_slug("control")
+        if not slug:
+            raise HTTPException(500, "WS_SLUG_CONTROL 워크스페이스가 설정되지 않았습니다.")
 
     # 학생이 고른 사진을 AI에게 보여 준다. 왼쪽부터 최대 두 장이고, 이 탭의 사진만 받는다.
     mode_images = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
@@ -514,7 +576,7 @@ async def chat(req: ChatRequest):
     # 사진 기록은 실험군 Agent Flow가 조회한다. 저장하는 질문 원문에는 넣지 않는다.
     prompt_message = f"{known}[이번 말]\n{message}" if known else message
 
-    support_level: Optional[int] = None
+    support_level = SUPPORT_LEVELS.get(support_level_id) if use_agent else None
     last_tool_id = 0
     if use_agent:
         agent_message = build_support_message(prompt_message, student_id, images)
@@ -552,7 +614,11 @@ async def chat(req: ChatRequest):
         if recorded:
             observation_types = json.dumps(recorded[-1], ensure_ascii=False)
         missing = []
-        if "offload_photos" not in names:
+        # 수준별 Flow가 자기 자료를 조회한다. 예전 공통 조회도 같은 턴으로 인정한다.
+        level_tool = f"offload_agent_{support_level_id}" if support_level_id else ""
+        if level_tool and level_tool not in names and "offload_photos" not in names:
+            missing.append(level_tool)
+        elif not level_tool and "offload_photos" not in names:
             missing.append("offload_photos")
         tool_skipped = bool(missing)
         if tool_skipped:
@@ -1106,6 +1172,61 @@ def tool_offload_photos(
     }
 
 
+OFFLOAD_AGENT_FILES = {
+    "delegate": "offload_agent_delegate",
+    "guide": "offload_agent_guide",
+    "assist": "offload_agent_assist",
+}
+
+
+@app.get("/api/tools/offload-agent")
+def tool_offload_agent(
+    studentId: str = Query(...),
+    level: str = Query(..., description="delegate, guide, assist 중 하나"),
+    images: Optional[str] = Query(
+        None,
+        description="쉼표로 이은 탭 2 사진 파일명. 비우면 탭 2 사진 전체",
+    ),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """지원 수준에 맞는 관찰 자료만 돌려준다. 답변 방식은 그 워크스페이스 프롬프트가 정한다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+    level_id = (level or "").strip()
+    file_name = OFFLOAD_AGENT_FILES.get(level_id)
+    if not file_name:
+        raise HTTPException(400, "level은 delegate, guide, assist 중 하나여야 합니다.")
+    data = diagnosis.load_knowledge(file_name)
+    catalog = MODE_IMAGES["offload"]
+    requested: list[str] = []
+    if images:
+        for part in images.split(","):
+            name = part.strip()
+            if name in catalog and name not in requested:
+                requested.append(name)
+    else:
+        requested = list(catalog)
+    all_photos = data.get("photos") or {}
+    photos = {name: all_photos[name] for name in requested if name in all_photos}
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name=f"offload_agent_{level_id}",
+        input_text=images or "",
+        result_summary=(
+            f"level={level_id}, count={len(photos)}, "
+            f"images={','.join(requested) or 'all'}"
+        ),
+    )
+    payload = {
+        "howToUse": data.get("howToUse") or [],
+        "feedbackElements": data.get("feedbackElements") or [],
+        "photos": photos,
+    }
+    if data.get("moves"):
+        payload["moves"] = data["moves"]
+    return payload
+
+
 @app.get("/api/tools/observation-methods")
 def tool_observation_methods(
     studentId: str = Query(...),
@@ -1274,6 +1395,7 @@ def admin_export(
 
     rows_by_student = {s["student_id"]: db.get_student_history(s["student_id"]) for s in students}
     tool_calls = db.get_all_tool_calls()
+    support_fits = db.list_support_fits()
     fmt = format.lower()
     if fmt == "docx":
         buf = reports.build_admin_docx(students, rows_by_student, tool_calls)
@@ -1284,7 +1406,12 @@ def admin_export(
         )
 
     buf = reports.build_admin_xlsx(
-        students, rows_by_student, tool_calls, diagnoses=diagnoses, mode_sessions=mode_sessions
+        students,
+        rows_by_student,
+        tool_calls,
+        diagnoses=diagnoses,
+        mode_sessions=mode_sessions,
+        support_fits=support_fits,
     )
     return Response(
         content=buf,

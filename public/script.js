@@ -55,10 +55,10 @@ function applyStudyGroup(group, mismatch = false) {
   if (studyGroup === "B") {
     if (tab2) tab2.textContent = "탭 2 AI Agent 활용 과제";
     spec.subtitle = "AI 도우미에게 질문하면서 단풍잎을 관찰합니다. 관찰 문장은 직접 적고, 물어본 내용에만 도우미가 답해요.";
-    spec.hint = "※ 관찰 문장은 아래 입력란에 직접 적어요. 궁금한 것은 위쪽 대화창에 물어보세요. 물어볼 때 도우미는 적어 둔 문장을 알고 답해요.";
+    spec.hint = "※ 첫 사진은 2수준 관찰 방법 안내로 시작해요. 다른 사진으로 바꾸면 대화창에서 지원 수준을 고르고, 그 사진을 보는 동안 그 수준이 유지돼요.";
     spec.startTitle = "탭 2 · AI Agent 활용 과제";
-    spec.startDesc = "사진을 고를 때마다, 혼자 할 수 있는 관찰을 먼저 고르고 시작합니다.\n관찰 문장은 직접 적고, 필요할 때만 AI 도우미에게 물어보세요.";
-    spec.startDescTimed = "사진을 고를 때마다, 혼자 할 수 있는 관찰을 먼저 고르고 시작합니다. 관찰 문장은 직접 적고, 필요할 때만 AI 도우미에게 물어보세요. 시작하면 제한 시간이 흐릅니다.";
+    spec.startDesc = "첫 사진은 2수준 관찰 방법 안내로 시작해요.\n다른 사진으로 바꾸면 대화창에서 이번 사진의 지원 수준을 고르고, 관찰 문장은 직접 적어요.";
+    spec.startDescTimed = "첫 사진은 2수준 관찰 방법 안내로 시작해요. 다른 사진으로 바꾸면 대화창에서 이번 사진의 지원 수준을 고르고, 관찰 문장은 직접 적어요. 시작하면 제한 시간이 흐릅니다.";
     spec.sentenceToAI = false;
     spec.greeting = "안녕하세요! 저는 관찰 도우미예요. 관찰 문장은 아래에 직접 적어 주세요. 궁금한 점이 있으면 여기에 물어보세요.";
     spec.chatPlaceholder = "AI 도우미에게 질문하세요... (Enter 전송, Shift+Enter 줄바꿈)";
@@ -168,12 +168,14 @@ studentIdSaveBtn.addEventListener("click", async () => {
     return;
   }
   studentIdValue = value;
+  supportViewKey = "";
   updateStudentIdStatus();
   await refresh();
 });
 
 studentIdResetBtn.addEventListener("click", async () => {
   studentIdValue = "";
+  supportViewKey = "";
   serverStatus = null;
   updateStudentIdStatus();
   studentIdInput.focus();
@@ -283,7 +285,8 @@ let metaDraftKey = "";
 let metaDraft = new Set();
 
 function metaApplies() {
-  return currentMode === "offload" && studyGroup === "B";
+  // 실험군 탭 2의 '관찰을 시작하기 전에' 선택은 쓰지 않는다.
+  return false;
 }
 
 function loadMetaMap(mode = currentMode) {
@@ -307,8 +310,9 @@ function syncObservationLock() {
   const editable = canEditObservation();
   if (sentenceInput) sentenceInput.disabled = !editable;
   if (sentenceAddBtn) sentenceAddBtn.disabled = !editable;
-  if (chatInput) chatInput.disabled = !editable;
-  if (sendBtn) sendBtn.disabled = !editable;
+  const waitingForSupport = supportChoicePending();
+  if (chatInput) chatInput.disabled = !editable || waitingForSupport;
+  if (sendBtn) sendBtn.disabled = !editable || waitingForSupport;
   if (submitBtn) submitBtn.disabled = modeInfo(currentMode)?.status !== "in_progress";
 }
 
@@ -425,9 +429,133 @@ function pushChat(entry, mode = currentMode, threadKey = photoThreadKey(mode)) {
   localStorage.setItem(storeKey("chat", mode), JSON.stringify(bucket));
 }
 
+const SUPPORT_LEVELS_UI = {
+  delegate: {
+    stage: "1수준",
+    name: "관찰 문장 정답 제공",
+    role: "사진에서 관찰한 문장을 대신 써 줍니다.",
+  },
+  guide: {
+    stage: "2수준",
+    name: "관찰 방법 안내",
+    role: "어디를 볼지 골라 주고, 빈칸이 있는 문장으로 관찰하는 방법을 안내합니다.",
+  },
+  assist: {
+    stage: "3수준",
+    name: "나의 관찰 문장 검토",
+    role: "내가 쓴 문장을 살펴보고, 빠진 것 하나를 보태거나 맞는지 확인해 줍니다.",
+  },
+};
+let supportViewKey = "";
+let supportChoiceFocused = "";
+let supportChoiceSaving = false;
+const supportDrafts = {};
+
+function supportLevelApplies() {
+  return currentMode === "offload" && studyGroup === "B";
+}
+
+function supportStoreKey() {
+  return `autumn_photo_support_v1_${getStudentId() || "none"}`;
+}
+
+function loadPhotoSupport() {
+  const saved = loadJson(supportStoreKey(), null);
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+    return { firstKey: "", previousKey: "", levels: {} };
+  }
+  if (!saved.levels || typeof saved.levels !== "object") saved.levels = {};
+  if (!saved.fits || typeof saved.fits !== "object" || Array.isArray(saved.fits)) saved.fits = {};
+  return saved;
+}
+
+function savePhotoSupport(data) {
+  localStorage.setItem(supportStoreKey(), JSON.stringify(data));
+}
+
+function supportLevelFor(threadKey = photoThreadKey()) {
+  return loadPhotoSupport().levels[threadKey] || "";
+}
+
+function ensurePhotoSupport() {
+  if (!supportLevelApplies() || modeInfo(currentMode)?.status !== "in_progress") return;
+  const key = photoThreadKey();
+  if (!key || key === "none") return;
+  const data = loadPhotoSupport();
+  if (!data.firstKey) {
+    data.firstKey = key;
+    data.levels[key] = "guide";
+    savePhotoSupport(data);
+  }
+  if (supportViewKey && supportViewKey !== key) {
+    const next = loadPhotoSupport();
+    next.previousKey = supportViewKey;
+    savePhotoSupport(next);
+  }
+  supportViewKey = key;
+}
+
+function supportChoicePending() {
+  if (!supportLevelApplies() || workArea.hidden) return false;
+  if (modeInfo(currentMode)?.status !== "in_progress") return false;
+  const key = photoThreadKey();
+  return !!key && key !== "none" && !supportLevelFor(key);
+}
+
+function supportDraft(key) {
+  if (!supportDrafts[key]) supportDrafts[key] = { fit: "", level: "" };
+  return supportDrafts[key];
+}
+
+function renderSupportLevels() {
+  const choice = $("support-choice");
+  const status = $("support-status");
+  const stageEl = $("support-status-stage");
+  const roleEl = $("support-status-role");
+  const buttons = $("support-level-buttons");
+  if (!choice || !status || !stageEl || !roleEl || !buttons) return;
+  ensurePhotoSupport();
+  const show = supportLevelApplies() && !workArea.hidden && modeInfo(currentMode)?.status === "in_progress";
+  if (!show) {
+    choice.hidden = true;
+    status.hidden = true;
+    supportChoiceFocused = "";
+    syncObservationLock();
+    return;
+  }
+  const key = photoThreadKey();
+  const level = supportLevelFor(key);
+  const choosing = !level;
+  choice.hidden = !choosing;
+  status.hidden = choosing;
+  const draft = choosing ? supportDraft(key) : { fit: "", level: "" };
+  document.querySelectorAll(".support-fit-buttons [data-fit]").forEach((btn) => {
+    btn.setAttribute("aria-pressed", choosing && btn.dataset.fit === draft.fit ? "true" : "false");
+  });
+  buttons.querySelectorAll("[data-level]").forEach((btn) => {
+    btn.disabled = !choosing;
+    btn.setAttribute("aria-pressed", choosing && btn.dataset.level === draft.level ? "true" : "false");
+  });
+  const confirmBtn = $("support-choice-confirm");
+  if (confirmBtn) confirmBtn.disabled = !choosing || supportChoiceSaving || !draft.fit || !draft.level;
+  if (choosing) {
+    if (supportChoiceFocused !== key) {
+      supportChoiceFocused = key;
+    }
+    syncObservationLock();
+    return;
+  }
+  supportChoiceFocused = "";
+  const info = SUPPORT_LEVELS_UI[level];
+  stageEl.textContent = info ? `${info.stage}: ${info.name}` : level;
+  roleEl.textContent = info ? `역할: ${info.role}` : "";
+  syncObservationLock();
+}
+
 function chatSessionId(mode = currentMode, threadKey = photoThreadKey(mode)) {
   const photo = String(threadKey).replace(/[^a-zA-Z0-9_-]/g, "_");
-  return `${sessionId}__${mode}__${photo}`;
+  const level = mode === "offload" && studyGroup === "B" ? supportLevelFor(threadKey) : "";
+  return `${sessionId}__${mode}__${photo}${level ? `__${level}` : ""}`;
 }
 
 function isChatThreadOnScreen(mode, threadKey) {
@@ -771,6 +899,7 @@ function renderChat() {
   if (chatScope) chatScope.textContent = selectionTitle();
   if (spec.greeting) addMessage(spec.greeting, "ai", { store: false });
   loadChat().forEach((m) => addMessage(m.text, m.type, { store: false }));
+  renderSupportLevels();
 }
 
 function renderSentences() {
@@ -861,6 +990,7 @@ function applyMode() {
 
   if (showWork) {
     renderChat();
+    renderSupportLevels();
     renderSentences();
     syncObservationLock();
     renderMetaGate();
@@ -993,6 +1123,7 @@ async function sendToAI(text, kind) {
         image,
         images,
         observations: sentencesForSelection().map((item) => item.text).filter((text) => text && text.trim()),
+        supportLevel: supportLevelApplies() ? supportLevelFor(threadKey) : undefined,
       },
     });
     loadingEl?.remove();
@@ -1017,9 +1148,73 @@ chatInput.addEventListener("keydown", (e) => {
   }
 });
 
+document.querySelectorAll(".support-fit-buttons [data-fit]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (!supportChoicePending() || supportChoiceSaving) return;
+    supportDraft(photoThreadKey()).fit = btn.dataset.fit === "yes" ? "yes" : "no";
+    renderSupportLevels();
+  });
+});
+
+document.querySelectorAll(".support-level-buttons [data-level]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (!supportChoicePending() || supportChoiceSaving) return;
+    const level = btn.dataset.level || "";
+    if (!SUPPORT_LEVELS_UI[level]) return;
+    supportDraft(photoThreadKey()).level = level;
+    renderSupportLevels();
+  });
+});
+
+$("support-choice-confirm")?.addEventListener("click", async () => {
+  if (!supportChoicePending() || supportChoiceSaving) return;
+  const key = photoThreadKey();
+  const draft = supportDraft(key);
+  if (!draft.fit || !draft.level) {
+    showNotice("예 또는 아니오와 지원 수준을 모두 고른 뒤 확인을 눌러 주세요.");
+    return;
+  }
+  const data = loadPhotoSupport();
+  const ratedKey = data.previousKey || "";
+  if (!ratedKey) {
+    showNotice("이전 사진의 도움을 아직 확인하지 못했어요.");
+    return;
+  }
+  supportChoiceSaving = true;
+  renderSupportLevels();
+  try {
+    await api("/api/support-fit", {
+      method: "POST",
+      body: {
+        studentId: getStudentId(),
+        sessionId,
+        ratedThreadKey: ratedKey,
+        supportLevel: data.levels[ratedKey] || "",
+        appropriate: draft.fit === "yes",
+      },
+    });
+    const latest = loadPhotoSupport();
+    latest.fits[ratedKey] = draft.fit;
+    latest.levels[key] = draft.level;
+    savePhotoSupport(latest);
+    delete supportDrafts[key];
+    chatInput?.focus();
+  } catch (err) {
+    showNotice(err.message || "느낌을 저장하지 못했습니다.");
+  } finally {
+    supportChoiceSaving = false;
+    renderSupportLevels();
+    syncObservationLock();
+  }
+});
+
 chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (metaGateActive()) return;
+  if (supportChoicePending()) {
+    showNotice("예 또는 아니오와 지원 수준을 고른 뒤 확인을 눌러 주세요.");
+    return;
+  }
   const text = chatInput.value.trim();
   if (!text || chatBusy) return;
   addMessage(text, "user");
