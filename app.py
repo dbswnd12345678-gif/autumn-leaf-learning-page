@@ -1175,7 +1175,7 @@ def tool_offload_photos(
 OFFLOAD_AGENT_FILES = {
     "delegate": "offload_agent_delegate",
     "guide": "offload_agent_guide",
-    "assist": "offload_agent_assist",
+    "assist": "offload_agent_review",
 }
 
 
@@ -1219,9 +1219,10 @@ def tool_offload_agent(
     )
     payload = {
         "howToUse": data.get("howToUse") or [],
-        "feedbackElements": data.get("feedbackElements") or [],
         "photos": photos,
     }
+    if data.get("feedbackElements"):
+        payload["feedbackElements"] = data["feedbackElements"]
     if data.get("moves"):
         payload["moves"] = data["moves"]
     return payload
