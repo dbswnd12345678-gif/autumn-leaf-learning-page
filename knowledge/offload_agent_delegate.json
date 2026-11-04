@@ -1,8 +1,8 @@
 {
   "version": "0.1",
   "levelId": "delegate",
-  "levelName": "문장을 대신 써 주는 에이전트",
-  "studentChoiceLabel": "문장을 대신 써 줘",
+  "levelName": "관찰 문장 정답 제공 Agent",
+  "studentChoiceLabel": "관찰 문장 정답 제공",
   "description": "탭 2에서 관찰 문장을 주는 지원 자료. 파일명으로 photos를 찾고, sentences에서 type이 다른 문장 하나를 준다. 각 문장은 관찰 수준 1 또는 2이고, 객관도는 정성 2 또는 정량 3이다.",
   "fields": {
     "sentences": "이 사진에서 줄 수 있는 관찰 문장 한 목록. type, level, objectivity가 한 문장에 함께 있다. level은 1 또는 2, objectivity는 정성 2 또는 정량 3. 잎이 한 장만 또렷하면 다수-전체는 없다. type, level, objectivity는 고를 때만 쓰고 학생에게 말하지 않는다.",
