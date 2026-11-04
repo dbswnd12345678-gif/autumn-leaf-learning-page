@@ -1225,6 +1225,9 @@ def tool_offload_agent(
         payload["feedbackElements"] = data["feedbackElements"]
     if data.get("moves"):
         payload["moves"] = data["moves"]
+    sentence_method = data.get("관찰 문장을 적는 방법")
+    if sentence_method:
+        payload["관찰 문장을 적는 방법"] = sentence_method
     return payload
 
 
