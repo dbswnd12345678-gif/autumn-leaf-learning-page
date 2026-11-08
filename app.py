@@ -59,16 +59,21 @@ WORKSPACE_SLUGS = {
     "judge": os.environ.get("WS_SLUG_JUDGE", ""),
     # 대조군(A) 탭 2. Agent 없이 학생의 말만 보내는 생성형 AI 워크스페이스.
     "control": os.environ.get("WS_SLUG_CONTROL", ""),
-    # 실험군(B) 탭 2. 학생이 고른 도움 수준마다 워크스페이스가 다르다.
+    # 예전 수준별 워크스페이스. 실험군은 더 이상 나누지 않고, 비어 있지 않으면 단일 워크스페이스의 대체로만 쓴다.
     "support_delegate": os.environ.get("WS_SLUG_SUPPORT_DELEGATE", ""),
     "support_guide": os.environ.get("WS_SLUG_SUPPORT_GUIDE", ""),
     "support_assist": os.environ.get("WS_SLUG_SUPPORT_ASSIST", ""),
 }
-# 저장 번호와 화면 수준이 같다.
+# 이번 턴에 실제로 호출된 Flow. 학생이 고른 값이 아니다.
 # delegate 1 = 1수준 관찰 문장 정답 제공
 # guide 2 = 2수준 관찰 방법 안내
 # assist 3 = 3수준 나의 관찰 문장 검토
 SUPPORT_LEVELS = {"delegate": 1, "guide": 2, "assist": 3}
+SUPPORT_LEVEL_TOOLS = {
+    "offload_agent_delegate": 1,
+    "offload_agent_guide": 2,
+    "offload_agent_assist": 3,
+}
 STUDY_GROUPS = ("A", "B")
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 # AnythingLLM Agent Flow의 "API Call"이 /api/tools/*를 호출할 때 X-Tool-Key 헤더로 보내는 비밀 키.
@@ -112,15 +117,14 @@ if not (ANYTHINGLLM_BASE_URL and ANYTHINGLLM_API_KEY):
     print("[경고] ANYTHINGLLM_BASE_URL / ANYTHINGLLM_API_KEY 가 설정되지 않았습니다.")
 if not WORKSPACE_SLUGS["control"]:
     print("[경고] WS_SLUG_CONTROL 이 없어 대조군(A) 탭 2 대화를 쓸 수 없습니다.")
-if not (WORKSPACE_SLUGS["support"] or LEGACY_WORKSPACE_SLUG):
-    print("[경고] WS_SLUG_SUPPORT 가 없어 실험군(B) 탭 2 대화를 쓸 수 없습니다.")
-for _level_key, _env_name in (
-    ("support_delegate", "WS_SLUG_SUPPORT_DELEGATE"),
-    ("support_guide", "WS_SLUG_SUPPORT_GUIDE"),
-    ("support_assist", "WS_SLUG_SUPPORT_ASSIST"),
+if not (
+    WORKSPACE_SLUGS["support"]
+    or WORKSPACE_SLUGS["support_delegate"]
+    or WORKSPACE_SLUGS["support_guide"]
+    or WORKSPACE_SLUGS["support_assist"]
+    or LEGACY_WORKSPACE_SLUG
 ):
-    if not WORKSPACE_SLUGS[_level_key]:
-        print(f"[경고] {_env_name} 이 없어 실험군 도움 수준 대화를 쓸 수 없습니다.")
+    print("[경고] 실험군(B) 탭 2에 쓸 워크스페이스 slug가 없습니다.")
 if not ADMIN_KEY:
     print("[경고] ADMIN_KEY 환경변수가 설정되지 않았습니다. /api/admin/* 를 쓸 수 없습니다.")
 
@@ -211,6 +215,15 @@ def parse_iso(value: str) -> datetime:
 def workspace_slug(mode: str) -> str:
     """모드에 맞는 워크스페이스 slug. 모드별 설정이 없으면 예전 단일 slug를 쓴다."""
     return WORKSPACE_SLUGS.get(mode) or LEGACY_WORKSPACE_SLUG
+
+
+def experimental_agent_slug() -> str:
+    """실험군 탭 2의 워크스페이스 하나. 질문 종류는 그 시스템 프롬프트가 Flow로 가른다."""
+    for key in ("support", "support_delegate", "support_guide", "support_assist"):
+        slug = WORKSPACE_SLUGS.get(key) or ""
+        if slug:
+            return slug
+    return LEGACY_WORKSPACE_SLUG or ""
 
 
 def judge_slug() -> str:
@@ -469,8 +482,10 @@ def known_observation_block(observations: list[str]) -> str:
     return (
         "[이미 적은 관찰 문장]\n"
         "아래는 학생이 관찰 문장 칸에 적어 둔 내용이다. "
-        "이번 턴에 새로 말한 것이 아니므로 이 목록에는 답하지 않는다. "
-        "학생이 이번 말에서 이 문장을 언급하거나 확인을 구할 때만 참고한다.\n"
+        "이번 턴에 새로 말한 것이 아니므로, 묻지 않은 목록을 순서대로 답하지 않는다. "
+        "검토를 부탁하면 이 문장을 검토한다. "
+        "관찰 문장을 줄 때는 같은 내용을 다시 주지 않기 위해 참고한다. "
+        "관찰 방법을 안내할 때는 이미 적은 내용과 겹치지 않는 요소를 고르기 위해 참고한다.\n"
         f"{numbered}\n\n"
     )
 
@@ -494,8 +509,8 @@ def build_support_message(
     images: Optional[list[str]] = None,
 ) -> str:
     # AnythingLLM은 메시지 앞에 "@agent"가 있어야 Agent Flow를 부른다.
-    # 사진 기록은 서버가 붙이지 않는다. 지원 수준 Flow가
-    # [studentId: ...]와 [images: ...]를 읽어 /api/tools/offload-agent를 호출한다.
+    # 사진 기록은 서버가 붙이지 않는다. 시스템 프롬프트가 이번 말에 맞는 Flow를
+    # [studentId: ...]와 [images: ...]로 호출한다.
     names = [name for name in (images or []) if name]
     image_tag = f" [images: {','.join(names)}]" if names else ""
     return f"@agent [studentId: {student_id}]{image_tag}\n\n{student_message}"
@@ -513,7 +528,7 @@ class ChatRequest(BaseModel):
     images: Optional[list[str]] = None
     # 이번 사진에 학생이 이미 적어 둔 관찰 문장. 답변을 만들지 않고, 질문할 때만 함께 보여 준다.
     observations: Optional[list[Any]] = None
-    # 실험군이 고른 도움 수준. delegate, guide, assist.
+    # 예전 화면이 보내던 값. 실험군은 질문 종류로 Flow를 고르므로 워크스페이스를 나누지 않는다.
     supportLevel: Optional[str] = None
 
 
@@ -541,13 +556,10 @@ async def chat(req: ChatRequest):
 
     session = require_active_session(student_id, mode)
     use_agent = study_group == "B"
-    support_level_id = (req.supportLevel or "").strip()
     if use_agent:
-        if support_level_id not in SUPPORT_LEVELS:
-            raise HTTPException(400, "도움을 받을 정도를 먼저 골라 주세요.")
-        slug = WORKSPACE_SLUGS[f"support_{support_level_id}"]
+        slug = experimental_agent_slug()
         if not slug:
-            raise HTTPException(500, f"WS_SLUG_SUPPORT_{support_level_id.upper()} 워크스페이스가 설정되지 않았습니다.")
+            raise HTTPException(500, "실험군 AI Agent 워크스페이스가 설정되지 않았습니다.")
     else:
         slug = workspace_slug("control")
         if not slug:
@@ -576,7 +588,6 @@ async def chat(req: ChatRequest):
     # 사진 기록은 실험군 Agent Flow가 조회한다. 저장하는 질문 원문에는 넣지 않는다.
     prompt_message = f"{known}[이번 말]\n{message}" if known else message
 
-    support_level = SUPPORT_LEVELS.get(support_level_id) if use_agent else None
     last_tool_id = 0
     if use_agent:
         agent_message = build_support_message(prompt_message, student_id, images)
@@ -601,6 +612,7 @@ async def chat(req: ChatRequest):
     tools_called: Optional[str] = None
     tool_skipped: Optional[bool] = None
     observation_types: Optional[str] = None
+    support_level: Optional[int] = None
     if use_agent:
         # 사진 자료는 Agent Flow가 /api/tools/offload-photos를 호출할 때 기록된다.
         new_calls = db.get_tool_calls_after(student_id, last_tool_id)
@@ -613,13 +625,13 @@ async def chat(req: ChatRequest):
         ]
         if recorded:
             observation_types = json.dumps(recorded[-1], ensure_ascii=False)
+        called_levels = [SUPPORT_LEVEL_TOOLS[name] for name in names if name in SUPPORT_LEVEL_TOOLS]
+        support_level = called_levels[-1] if called_levels else None
+        # 질문 종류에 맞는 Flow 하나가 조회한다. 예전 공통 조회도 같은 턴으로 인정한다.
+        # 인사처럼 세 가지가 아닌 말은 Flow를 부르지 않으므로 누락으로 남는다.
         missing = []
-        # 수준별 Flow가 자기 자료를 조회한다. 예전 공통 조회도 같은 턴으로 인정한다.
-        level_tool = f"offload_agent_{support_level_id}" if support_level_id else ""
-        if level_tool and level_tool not in names and "offload_photos" not in names:
-            missing.append(level_tool)
-        elif not level_tool and "offload_photos" not in names:
-            missing.append("offload_photos")
+        if not called_levels and "offload_photos" not in names:
+            missing.append("offload_agent")
         tool_skipped = bool(missing)
         if tool_skipped:
             db.log_tool_call(
@@ -1189,7 +1201,7 @@ def tool_offload_agent(
     ),
     x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
 ):
-    """지원 수준에 맞는 관찰 자료만 돌려준다. 답변 방식은 그 워크스페이스 프롬프트가 정한다."""
+    """질문 종류에 맞는 관찰 자료만 돌려준다. 어느 Flow를 부를지는 워크스페이스 프롬프트가 정한다."""
     require_tool_key(x_tool_key)
     student_id = tool_student(studentId)
     level_id = (level or "").strip()

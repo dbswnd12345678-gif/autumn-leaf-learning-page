@@ -15,10 +15,10 @@
 | 관찰력 평가 데이터 조회 | `/api/tools/observation-assessment?studentId={studentId}` | 연구 확인 | 이 학생의 탭 1 진단 결과(OQ_A, 다양도 D, 사용한 관찰 유형, 아직 쓰지 않은 관찰 유형). 탭 3 답변은 진단 기록 조회를 씀 |
 | 오프로딩 단계 진단 조회 | `/api/tools/offloading-diagnosis?studentId={studentId}` | 연구 확인 | 단계 정의와 이 학생의 탭 2 진단 결과(요청 유형, 반영 비율). 탭 3 답변은 진단 기록 조회를 씀 |
 | 오프로딩 단계별 지원방법 조회 | `/api/tools/support-methods?studentId={studentId}` | 3 (진단 기록 다음) | 탭 1 평균은 quality.profile(도우미 태도)만 정함. levelStages·objectivityStages는 방금 문장 기준으로 한 걸음 methods를 고를 때 씀. 오프로딩 단계의 말하는 방식 포함 |
-| 탭 2 사진 자료 조회 | `/api/tools/offload-photos?studentId={studentId}&images={파일명,파일명}` | 2 (예전 공통 조회) | 응답은 예전 서버 첨부와 같이 `howToUse` 목록과 `photos`뿐이다. 실험군 세 수준은 아래 수준별 Flow를 쓴다. |
-| 1수준 관찰 문장 정답 제공 | `/api/tools/offload-agent?level=delegate&studentId={studentId}&images={파일명,파일명}` | 2 (실험군 1수준 워크스페이스) | `offload_agent_delegate.json`의 howToUse와 해당 사진. 파일명으로 photos를 찾고, sentences에서 type이 다른 문장 하나를 준다. 문장마다 type, level(1 또는 2), objectivity(정성 2 또는 정량 3)가 있다. doNotAnswer는 답하지 않는다. |
-| 2수준 관찰 방법 안내 | `/api/tools/offload-agent?level=guide&studentId={studentId}&images={파일명,파일명}` | 2 (실험군 2수준 워크스페이스) | `offload_agent_guide.json`의 howToUse, 해당 사진의 부위·모양·색깔·정량적 표현·전체와 부분, 관찰 문장을 적는 방법. 관찰 방법과 관련 없는 요청이면 역할을 소개하고 도움을 요청하라고 한다. 관찰 방법을 물을 때만, 이미 적은 문장이나 앞서 안내한 요소와 겹치지 않는 요소 하나를 고른다. 첫 단락은 그 요소, 다음 단락은 문장으로 적는 방법이다. 완성된 관찰 문장은 적지 않는다. |
-| 3수준 나의 관찰 문장 검토 | `/api/tools/offload-agent?level=assist&studentId={studentId}&images={파일명,파일명}` | 2 (실험군 3수준 워크스페이스) | `offload_agent_review.json`의 howToUse와 해당 사진의 더할관찰, 판별, 답하지않음. 판별로 정성·정량과 1차·2차를 가른다. 다음 관찰을 시도하라고 하지 않고, 그 사진에서 객관도와 수준을 어떻게 높일 수 있는지 말한다. |
+| 탭 2 사진 자료 조회 | `/api/tools/offload-photos?studentId={studentId}&images={파일명,파일명}` | 2 (예전 공통 조회) | 응답은 예전 서버 첨부와 같이 `howToUse` 목록과 `photos`뿐이다. 실험군은 아래 세 Flow 중 질문 종류에 맞는 하나만 부른다. |
+| 1수준 관찰 문장 정답 제공 | `/api/tools/offload-agent?level=delegate&studentId={studentId}&images={파일명,파일명}` | 2 (실험군 한 워크스페이스, 정답을 물을 때) | `offload_agent_delegate.json`의 howToUse와 해당 사진. 파일명으로 photos를 찾고, sentences에서 type이 다른 문장 하나를 준다. 문장마다 type, level(1 또는 2), objectivity(정성 2 또는 정량 3)가 있다. doNotAnswer는 답하지 않는다. |
+| 2수준 관찰 방법 안내 | `/api/tools/offload-agent?level=guide&studentId={studentId}&images={파일명,파일명}` | 2 (실험군 한 워크스페이스, 관찰 방법을 물을 때) | `offload_agent_guide.json`의 howToUse, 해당 사진의 부위·모양·색깔·정량적 표현·전체와 부분, 관찰 문장을 적는 방법. 관찰 방법을 물을 때만, 이미 적은 문장이나 앞서 안내한 요소와 겹치지 않는 요소 하나를 고른다. 첫 단락은 그 요소, 다음 단락은 문장으로 적는 방법이다. 완성된 관찰 문장은 적지 않는다. |
+| 3수준 나의 관찰 문장 검토 | `/api/tools/offload-agent?level=assist&studentId={studentId}&images={파일명,파일명}` | 2 (실험군 한 워크스페이스, 검토를 부탁할 때) | `offload_agent_review.json`의 howToUse와 해당 사진의 더할관찰, 판별, 답하지않음. 판별로 정성·정량과 1차·2차를 가른다. 다음 관찰을 시도하라고 하지 않고, 그 사진에서 객관도와 수준을 어떻게 높일 수 있는지 말한다. |
 | 탭 3 사진 메모 조회 | `/api/tools/support-photos?studentId={studentId}&images={파일명,파일명}` | 3 (지원방법 다음) | 사후 과제 사진 메모. 탭 2 파일명이면 offload_photos.json을 연다. images는 메시지 태그 `[images: ...]`와 같게. 비우면 사후 과제 사진 전체 |
 | 단풍잎 관찰 시 관찰 유형 및 방법 지원 | `/api/tools/observation-methods?studentId={studentId}` | 연구 확인 | 아직 쓰지 않은 관찰 유형 최대 3개. 탭 3 절차에서는 진단 기록 조회가 유형을 이미 돌려주므로 부르지 않음 |
 | 개인별 대화 로그 조회 | `/api/tools/dialogue-log?studentId={studentId}&mode=support&limit=10` | 3 (필요 시) | 최근 대화. 기록은 서버가 항상 저장하고 Agent는 읽기만 함 |
@@ -34,6 +34,7 @@
 
 ## Railway 환경변수 (학습 페이지 서비스)
 - `WS_SLUG_ASSESS`, `WS_SLUG_OFFLOAD`, `WS_SLUG_SUPPORT`: 워크스페이스 slug
+- 실험군 탭 2는 워크스페이스 하나다. 시스템 프롬프트는 `prompts/ws_support_agent.txt`다. 정답을 물으면 "1수준 관찰 문장 정답 제공", 관찰 방법을 물으면 "2수준 관찰 방법 안내", 검토를 부탁하면 "3수준 나의 관찰 문장 검토"를 한 번만 부른다. `WS_SLUG_SUPPORT`가 있으면 그 워크스페이스를 쓰고, 없으면 `WS_SLUG_SUPPORT_DELEGATE`, `WS_SLUG_SUPPORT_GUIDE`, `WS_SLUG_SUPPORT_ASSIST` 순으로 설정된 하나를 쓴다.
 - `WS_SLUG_JUDGE`: 선택. 비우면 `WS_SLUG_ASSESS`로 채점 요청
 - `SESSION_SECONDS`: 선택. 0이면 제한 시간 없음(기본). 수업 10분은 600
 - `UNLOCK_ALL=1`: 선택. 점검용. 탭 3 잠금을 풉니다(수업 때는 설정하지 않음)

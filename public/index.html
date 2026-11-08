@@ -112,22 +112,6 @@
           </div>
           <div class="chat-body">
             <div class="chat-log" id="chat-log"></div>
-            <div class="support-choice" id="support-choice" hidden role="dialog" aria-labelledby="support-choice-title">
-              <div class="support-choice-fit">
-                <p class="support-choice-q">이전 사진 관찰에서 AI Agent지원 방식이 관찰을 수행하는데 적절한 도움을 주었다고 느꼈나요?</p>
-                <div class="support-fit-buttons" role="group" aria-label="이전 지원이 적절했는지">
-                  <button type="button" data-fit="yes">예</button>
-                  <button type="button" data-fit="no">아니오</button>
-                </div>
-              </div>
-              <p class="support-choice-ask" id="support-choice-title">이번 관찰에서 AI Agent가 지원할 수준을 선택해주세요.</p>
-              <div class="support-level-buttons" id="support-level-buttons" role="group" aria-label="이번 사진의 지원 수준">
-                <button type="button" data-level="delegate"><span class="stage-no">1수준</span>관찰 문장 정답 제공</button>
-                <button type="button" data-level="guide"><span class="stage-no">2수준</span>관찰 방법 안내</button>
-                <button type="button" data-level="assist"><span class="stage-no">3수준</span>나의 관찰 문장 검토</button>
-              </div>
-              <button type="button" id="support-choice-confirm" disabled>확인</button>
-            </div>
           </div>
           <form id="chat-form" class="chat-input-row">
             <textarea id="chat-input" placeholder="" rows="2" required></textarea>
@@ -154,7 +138,7 @@
     </section>
   </main>
 
-  <script src="script.js?v=43"></script>
+  <script src="script.js?v=44"></script>
   <script src="measure.js?v=7"></script>
 </body>
 </html>
