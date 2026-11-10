@@ -1229,10 +1229,10 @@ def tool_offload_agent(
             f"images={','.join(requested) or 'all'}"
         ),
     )
-    payload = {
-        "howToUse": data.get("howToUse") or [],
-        "photos": photos,
-    }
+    payload: dict[str, Any] = {"howToUse": data.get("howToUse") or []}
+    if data.get("의존줄이기"):
+        payload["의존줄이기"] = data["의존줄이기"]
+    payload["photos"] = photos
     if data.get("feedbackElements"):
         payload["feedbackElements"] = data["feedbackElements"]
     if data.get("moves"):
