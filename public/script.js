@@ -1,5 +1,5 @@
 // 3개 탭: assess(사전 과제), offload(탭 2 AI 과제), support(사후 과제).
-// 탭 2는 주소의 group=A(생성형 AI) 또는 group=B(AI Agent)에 따라 달라진다.
+// 탭 2는 모든 학생이 AI Agent 하나와 관찰한다. 대조군은 두지 않는다.
 // 서버가 모드별 세션과 사진을 정한다. 제한 시간은 SESSION_SECONDS가 0보다 클 때만 흐른다.
 const MODES = {
   assess: {
@@ -13,16 +13,16 @@ const MODES = {
     sentenceTip: "AI 없이 직접 관찰하세요.",
   },
   offload: {
-    subtitle: "생성형 AI에게 질문하거나 요청하면서 단풍잎을 관찰합니다. 관찰 문장은 따로 적어 제출합니다.",
-    hint: "※ AI에게 무엇이든 물어봐도 돼요. 관찰 문장은 아래 입력란에 따로 적어요. 질문할 때 AI는 적어 둔 문장을 알고 답해요.",
-    startTitle: "탭 2 · 생성형 AI 활용 과제",
-    startDesc: "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요.",
-    startDescTimed: "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요. 시작하면 제한 시간이 흐릅니다.",
+    subtitle: "AI 도우미에게 질문하면서 단풍잎을 관찰합니다. 관찰 문장은 직접 적고, 물어본 내용에만 도우미가 답해요.",
+    hint: "※ 정답을 물으면 관찰 문장을 받고, 관찰 방법을 물으면 방법을 안내받고, 검토를 부탁하면 내가 쓴 문장을 살펴봐요.",
+    startTitle: "탭 2 · AI Agent 활용 과제",
+    startDesc: "하나의 AI Agent에게 질문하며 단풍잎을 관찰합니다.\n정답, 관찰 방법, 내가 쓴 문장 검토 중 필요한 것을 부탁하고, 관찰 문장은 직접 적어요.",
+    startDescTimed: "하나의 AI Agent에게 질문하며 단풍잎을 관찰합니다. 정답, 관찰 방법, 내가 쓴 문장 검토 중 필요한 것을 부탁하고, 관찰 문장은 직접 적어요. 시작하면 제한 시간이 흐릅니다.",
     chat: true,
     sentenceToAI: false,
-    greeting: "안녕하세요. 단풍잎 관찰을 도와드릴게요. 궁금한 것이나 부탁할 것을 자유롭게 말해 주세요.",
-    chatPlaceholder: "AI에게 질문하거나 요청하세요... (Enter 전송, Shift+Enter 줄바꿈)",
-    sentenceTip: "AI 답변과 별개로, 내가 관찰한 내용을 적어요.",
+    greeting: "안녕하세요. 관찰 문장, 관찰 방법, 내가 쓴 문장 검토를 부탁할 수 있어요. 관찰 문장은 아래에 직접 적어 주세요.",
+    chatPlaceholder: "AI 도우미에게 질문하세요... (Enter 전송, Shift+Enter 줄바꿈)",
+    sentenceTip: "관찰한 내용을 직접 적어요.",
   },
   support: {
     subtitle: "사진을 보고 관찰한 내용을 문장으로 적어보세요. 여러 문장을 쓸 수 있어요.",
@@ -36,52 +36,6 @@ const MODES = {
   },
 };
 const MODE_ORDER = ["assess", "offload", "support"];
-
-function urlGroup() {
-  const value = new URLSearchParams(location.search).get("group") || "";
-  const code = value.trim().toUpperCase();
-  return code === "A" || code === "B" ? code : "";
-}
-
-let studyGroup = urlGroup() || localStorage.getItem("autumn_leaf_group") || "";
-
-function applyStudyGroup(group, mismatch = false) {
-  if (group === "A" || group === "B") {
-    studyGroup = group;
-    localStorage.setItem("autumn_leaf_group", group);
-  }
-  const tab2 = document.querySelector('.lesson-tab[data-mode="offload"]');
-  const spec = MODES.offload;
-  if (studyGroup === "B") {
-    if (tab2) tab2.textContent = "탭 2 AI Agent 활용 과제";
-    spec.subtitle = "AI 도우미에게 질문하면서 단풍잎을 관찰합니다. 관찰 문장은 직접 적고, 물어본 내용에만 도우미가 답해요.";
-    spec.hint = "※ 정답을 물으면 관찰 문장을 받고, 관찰 방법을 물으면 방법을 안내받고, 검토를 부탁하면 내가 쓴 문장을 살펴봐요.";
-    spec.startTitle = "탭 2 · AI Agent 활용 과제";
-    spec.startDesc = "하나의 AI Agent에게 질문하며 단풍잎을 관찰합니다.\n정답, 관찰 방법, 내가 쓴 문장 검토 중 필요한 것을 부탁하고, 관찰 문장은 직접 적어요.";
-    spec.startDescTimed = "하나의 AI Agent에게 질문하며 단풍잎을 관찰합니다. 정답, 관찰 방법, 내가 쓴 문장 검토 중 필요한 것을 부탁하고, 관찰 문장은 직접 적어요. 시작하면 제한 시간이 흐릅니다.";
-    spec.sentenceToAI = false;
-    spec.greeting = "안녕하세요. 관찰 문장, 관찰 방법, 내가 쓴 문장 검토를 부탁할 수 있어요. 관찰 문장은 아래에 직접 적어 주세요.";
-    spec.chatPlaceholder = "AI 도우미에게 질문하세요... (Enter 전송, Shift+Enter 줄바꿈)";
-    spec.sentenceTip = "관찰한 내용을 직접 적어요.";
-  } else if (studyGroup === "A") {
-    if (tab2) tab2.textContent = "탭 2 생성형 AI 활용 과제";
-    spec.subtitle = "생성형 AI에게 질문하거나 요청하면서 단풍잎을 관찰합니다. 관찰 문장은 따로 적어 제출합니다.";
-    spec.hint = "※ AI에게 무엇이든 물어봐도 돼요. 관찰 문장은 아래 입력란에 따로 적어요. 질문할 때 AI는 적어 둔 문장을 알고 답해요.";
-    spec.startTitle = "탭 2 · 생성형 AI 활용 과제";
-    spec.startDesc = "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요.";
-    spec.startDescTimed = "생성형 AI에게 질문하거나 요청하며 단풍잎을 관찰합니다. 관찰한 내용은 '내 관찰 문장'에 적어 최종 제출하세요. 시작하면 제한 시간이 흐릅니다.";
-    spec.sentenceToAI = false;
-    spec.greeting = "안녕하세요. 단풍잎 관찰을 도와드릴게요. 궁금한 것이나 부탁할 것을 자유롭게 말해 주세요.";
-    spec.chatPlaceholder = "AI에게 질문하거나 요청하세요... (Enter 전송, Shift+Enter 줄바꿈)";
-    spec.sentenceTip = "AI 답변과 별개로, 내가 관찰한 내용을 적어요.";
-  } else if (tab2) {
-    tab2.textContent = "탭 2 AI 활용 과제";
-  }
-  if (mismatch && studyGroup) {
-    const label = studyGroup === "B" ? "실험군(B)" : "대조군(A)";
-    showNotice(`이 학번은 ${label}으로 배정되어 있어 그 과제가 열립니다.`);
-  }
-}
 
 const $ = (id) => document.getElementById(id);
 const mainImage = $("main-image");
@@ -213,11 +167,8 @@ async function fetchStatus() {
     return;
   }
   const params = new URLSearchParams({ studentId });
-  const requested = urlGroup();
-  if (requested) params.set("group", requested);
   const data = await api(`/api/session/status?${params.toString()}`);
   serverStatus = data.modes;
-  applyStudyGroup(data.group || "", !!data.groupMismatch);
 }
 
 function modeInfo(mode) {
@@ -429,7 +380,7 @@ function pushChat(entry, mode = currentMode, threadKey = photoThreadKey(mode)) {
 }
 
 function agentStatusApplies() {
-  return currentMode === "offload" && studyGroup === "B";
+  return currentMode === "offload";
 }
 
 function renderAgentStatus() {
@@ -872,9 +823,6 @@ function applyMode() {
     startMsg.textContent = currentMode === "offload"
       ? "탭 1 사전 과제를 마치면 열려요."
       : "탭 1과 탭 2를 모두 마치면 열려요.";
-  } else if (currentMode === "offload" && !studyGroup) {
-    startBtn.disabled = true;
-    startMsg.textContent = "안내받은 집단 링크(?group=A 또는 ?group=B)로 들어와 주세요.";
   }
   startBtn.textContent =
     info?.timed === false
@@ -1176,7 +1124,6 @@ $("meta-check-start")?.addEventListener("click", () => {
 // 시작
 // ---------------------------------------------------------------------------
 updateStudentIdStatus();
-applyStudyGroup(studyGroup);
 refresh().then(() => {
   const running = MODE_ORDER.find((item) => modeInfo(item)?.status === "in_progress");
   if (running && running !== currentMode) {

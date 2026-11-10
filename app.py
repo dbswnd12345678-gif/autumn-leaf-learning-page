@@ -4,7 +4,7 @@
 학습 페이지는 3개 탭(모드)으로 나뉜다. 각 모드는 AnythingLLM 워크스페이스가 따로 있다.
 
   assess  (탭 1) 사전 과제     AI 없이 관찰 문장을 쓰고 최종 제출한다.
-  offload (탭 2) AI 과제       대조군(A)은 생성형 AI, 실험군(B)은 AI Agent와 관찰한다.
+  offload (탭 2) AI 과제       모든 학생이 AI Agent 하나와 관찰한다. 대조군은 두지 않는다.
   support (탭 3) 사후 과제     AI 없이 관찰 문장을 쓰고 최종 제출한다.
 
 하는 일:
@@ -57,9 +57,7 @@ WORKSPACE_SLUGS = {
     "offload": os.environ.get("WS_SLUG_OFFLOAD", ""),
     "support": os.environ.get("WS_SLUG_SUPPORT", ""),
     "judge": os.environ.get("WS_SLUG_JUDGE", ""),
-    # 대조군(A) 탭 2. Agent 없이 학생의 말만 보내는 생성형 AI 워크스페이스.
-    "control": os.environ.get("WS_SLUG_CONTROL", ""),
-    # 예전 수준별 워크스페이스. 실험군은 더 이상 나누지 않고, 비어 있지 않으면 단일 워크스페이스의 대체로만 쓴다.
+    # 예전 수준별 워크스페이스. 탭 2는 더 이상 나누지 않고, 비어 있지 않으면 단일 워크스페이스의 대체로만 쓴다.
     "support_delegate": os.environ.get("WS_SLUG_SUPPORT_DELEGATE", ""),
     "support_guide": os.environ.get("WS_SLUG_SUPPORT_GUIDE", ""),
     "support_assist": os.environ.get("WS_SLUG_SUPPORT_ASSIST", ""),
@@ -74,7 +72,8 @@ SUPPORT_LEVEL_TOOLS = {
     "offload_agent_guide": 2,
     "offload_agent_assist": 3,
 }
-STUDY_GROUPS = ("A", "B")
+# 대조군은 두지 않는다. 모든 학번은 B(AI Agent)로 기록한다. 예전에 A로 저장된 학번은 그대로 둔다.
+STUDY_GROUP = "B"
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 # AnythingLLM Agent Flow의 "API Call"이 /api/tools/*를 호출할 때 X-Tool-Key 헤더로 보내는 비밀 키.
 TOOL_API_KEY = os.environ.get("TOOL_API_KEY", "")
@@ -115,8 +114,6 @@ MODE_IMAGES = {
 
 if not (ANYTHINGLLM_BASE_URL and ANYTHINGLLM_API_KEY):
     print("[경고] ANYTHINGLLM_BASE_URL / ANYTHINGLLM_API_KEY 가 설정되지 않았습니다.")
-if not WORKSPACE_SLUGS["control"]:
-    print("[경고] WS_SLUG_CONTROL 이 없어 대조군(A) 탭 2 대화를 쓸 수 없습니다.")
 if not (
     WORKSPACE_SLUGS["support"]
     or WORKSPACE_SLUGS["support_delegate"]
@@ -124,7 +121,7 @@ if not (
     or WORKSPACE_SLUGS["support_assist"]
     or LEGACY_WORKSPACE_SLUG
 ):
-    print("[경고] 실험군(B) 탭 2에 쓸 워크스페이스 slug가 없습니다.")
+    print("[경고] 탭 2 AI Agent에 쓸 워크스페이스 slug가 없습니다.")
 if not ADMIN_KEY:
     print("[경고] ADMIN_KEY 환경변수가 설정되지 않았습니다. /api/admin/* 를 쓸 수 없습니다.")
 
@@ -218,7 +215,7 @@ def workspace_slug(mode: str) -> str:
 
 
 def experimental_agent_slug() -> str:
-    """실험군 탭 2의 워크스페이스 하나. 질문 종류는 그 시스템 프롬프트가 Flow로 가른다."""
+    """탭 2 AI Agent 워크스페이스 하나. 질문 종류는 그 시스템 프롬프트가 Flow로 가른다."""
     for key in ("support", "support_delegate", "support_guide", "support_assist"):
         slug = WORKSPACE_SLUGS.get(key) or ""
         if slug:
@@ -296,20 +293,9 @@ async def call_anythingllm(
 def timer_enabled() -> bool:
     return SESSION_SECONDS > 0
 
-def normalize_group(value: str) -> str:
-    code = str(value or "").strip().upper()
-    return code if code in STUDY_GROUPS else ""
-
-
-def resolve_study_group(student_id: str, requested: str) -> tuple[str, bool]:
-    """학번에 집단을 고정한다. 이미 있으면 그 값을 유지하고, 요청과 다르면 mismatch를 돌려준다."""
-    saved = db.get_study_group(student_id)
-    code = normalize_group(requested)
-    if saved:
-        return saved, bool(code and code != saved)
-    if not code:
-        return "", False
-    return db.assign_study_group(student_id, code), False
+def ensure_study_group(student_id: str) -> str:
+    """대조군이 없으므로 처음 들어온 학번은 모두 B로 기록한다. 이미 저장된 값은 바꾸지 않는다."""
+    return db.get_study_group(student_id) or db.assign_study_group(student_id, STUDY_GROUP)
 
 
 def session_submitted(student_id: str, mode: str) -> bool:
@@ -383,15 +369,13 @@ def validate_mode(mode: str) -> str:
 
 
 @app.get("/api/session/status")
-def session_status(studentId: str = Query(...), group: str = Query("")):
+def session_status(studentId: str = Query(...)):
     student_id = sanitize_id(studentId)
     if not student_id:
         raise HTTPException(400, "studentId가 필요합니다.")
-    study_group, group_mismatch = resolve_study_group(student_id, group)
+    ensure_study_group(student_id)
     return {
         "studentId": student_id,
-        "group": study_group,
-        "groupMismatch": group_mismatch,
         "durationSeconds": SESSION_SECONDS if timer_enabled() else 0,
         "timed": timer_enabled(),
         "modes": {mode: mode_status(student_id, mode) for mode in MODES},
@@ -420,8 +404,7 @@ def session_start(req: SessionStartRequest):
     if not student_id:
         raise HTTPException(400, "studentId가 필요합니다.")
     mode = validate_mode(req.mode)
-    if mode == "offload" and not db.get_study_group(student_id):
-        raise HTTPException(403, "안내받은 집단 링크로 들어와 주세요.")
+    ensure_study_group(student_id)
     if not is_mode_unlocked(student_id, mode):
         if mode == "offload":
             raise HTTPException(403, "탭 1 사전 과제를 먼저 마쳐야 탭 2를 시작할 수 있습니다.")
@@ -444,8 +427,6 @@ def save_support_fit(req: SupportFitRequest):
     session_id = sanitize_id(req.sessionId)
     if not student_id or not session_id:
         raise HTTPException(400, "studentId와 sessionId가 필요합니다.")
-    if db.get_study_group(student_id) != "B":
-        raise HTTPException(403, "실험군 탭 2에서만 기록합니다.")
     require_active_session(student_id, "offload")
     rated_key = (req.ratedThreadKey or "").strip()
     if not _THREAD_KEY_PATTERN.fullmatch(rated_key) or rated_key == "none":
@@ -550,20 +531,12 @@ async def chat(req: ChatRequest):
     if mode != "offload":
         raise HTTPException(400, "이 탭에서는 AI를 쓰지 않습니다.")
     input_kind = "sentence" if req.kind == "sentence" else "question"
-    study_group = db.get_study_group(student_id)
-    if study_group not in STUDY_GROUPS:
-        raise HTTPException(403, "안내받은 집단 링크로 들어와 주세요.")
+    ensure_study_group(student_id)
 
     session = require_active_session(student_id, mode)
-    use_agent = study_group == "B"
-    if use_agent:
-        slug = experimental_agent_slug()
-        if not slug:
-            raise HTTPException(500, "실험군 AI Agent 워크스페이스가 설정되지 않았습니다.")
-    else:
-        slug = workspace_slug("control")
-        if not slug:
-            raise HTTPException(500, "WS_SLUG_CONTROL 워크스페이스가 설정되지 않았습니다.")
+    slug = experimental_agent_slug()
+    if not slug:
+        raise HTTPException(500, "AI Agent 워크스페이스가 설정되지 않았습니다.")
 
     # 학생이 고른 사진을 AI에게 보여 준다. 왼쪽부터 최대 두 장이고, 이 탭의 사진만 받는다.
     mode_images = [img for img in MODE_IMAGES[mode] if img in ALLOWED_IMAGES]
@@ -585,18 +558,11 @@ async def chat(req: ChatRequest):
         message = f"[왼쪽 사진{left_no}, 오른쪽 사진{right_no}]\n{message}"
 
     known = known_observation_block(sanitize_known_observations(req.observations))
-    # 사진 기록은 실험군 Agent Flow가 조회한다. 저장하는 질문 원문에는 넣지 않는다.
+    # 사진 기록은 Agent Flow가 조회한다. 저장하는 질문 원문에는 넣지 않는다.
     prompt_message = f"{known}[이번 말]\n{message}" if known else message
 
-    last_tool_id = 0
-    if use_agent:
-        agent_message = build_support_message(prompt_message, student_id, images)
-        last_tool_id = db.get_max_tool_call_id(student_id)
-    else:
-        # 대조군은 @agent 없이 학생의 말만 보낸다. 사진이 두 장이면 왼쪽·오른쪽 번호만 앞에 붙인다.
-        # 이미 적은 관찰 문장은 질문 앞에만 붙이고, 저장하는 질문 원문에는 넣지 않는다.
-        # 채팅 모드는 요청에 넣지 않아, 워크스페이스에 둔 에이전트 모드가 적용된다.
-        agent_message = prompt_message
+    agent_message = build_support_message(prompt_message, student_id, images)
+    last_tool_id = db.get_max_tool_call_id(student_id)
 
     answer = sanitize_answer(
         await call_anythingllm(
@@ -604,7 +570,7 @@ async def chat(req: ChatRequest):
             agent_message,
             f"{mode}-{session_id}",
             attachments,
-            llm_mode="chat" if use_agent else None,
+            llm_mode="chat",
         )
         or "(응답이 비어 있습니다)"
     )
@@ -613,33 +579,32 @@ async def chat(req: ChatRequest):
     tool_skipped: Optional[bool] = None
     observation_types: Optional[str] = None
     support_level: Optional[int] = None
-    if use_agent:
-        # 사진 자료는 Agent Flow가 /api/tools/offload-photos를 호출할 때 기록된다.
-        new_calls = db.get_tool_calls_after(student_id, last_tool_id)
-        names = [c["tool_name"] for c in new_calls]
-        tools_called = ",".join(names)
-        recorded = [
-            diagnosis.loads_recorded_types(c.get("result_summary"))
-            for c in new_calls
-            if c.get("tool_name") == "support_sentence_type"
-        ]
-        if recorded:
-            observation_types = json.dumps(recorded[-1], ensure_ascii=False)
-        called_levels = [SUPPORT_LEVEL_TOOLS[name] for name in names if name in SUPPORT_LEVEL_TOOLS]
-        support_level = called_levels[-1] if called_levels else None
-        # 질문 종류에 맞는 Flow 하나가 조회한다. 예전 공통 조회도 같은 턴으로 인정한다.
-        # 인사처럼 세 가지가 아닌 말은 Flow를 부르지 않으므로 누락으로 남는다.
-        missing = []
-        if not called_levels and "offload_photos" not in names:
-            missing.append("offload_agent")
-        tool_skipped = bool(missing)
-        if tool_skipped:
-            db.log_tool_call(
-                student_id=student_id,
-                tool_name="tool_skipped",
-                input_text=message,
-                result_summary=f"input={input_kind}, missing={','.join(missing)}",
-            )
+    # 사진 자료는 Agent Flow가 /api/tools/offload-photos를 호출할 때 기록된다.
+    new_calls = db.get_tool_calls_after(student_id, last_tool_id)
+    names = [c["tool_name"] for c in new_calls]
+    tools_called = ",".join(names)
+    recorded = [
+        diagnosis.loads_recorded_types(c.get("result_summary"))
+        for c in new_calls
+        if c.get("tool_name") == "support_sentence_type"
+    ]
+    if recorded:
+        observation_types = json.dumps(recorded[-1], ensure_ascii=False)
+    called_levels = [SUPPORT_LEVEL_TOOLS[name] for name in names if name in SUPPORT_LEVEL_TOOLS]
+    support_level = called_levels[-1] if called_levels else None
+    # 질문 종류에 맞는 Flow 하나가 조회한다. 예전 공통 조회도 같은 턴으로 인정한다.
+    # 인사처럼 세 가지가 아닌 말은 Flow를 부르지 않으므로 누락으로 남는다.
+    missing = []
+    if not called_levels and "offload_photos" not in names:
+        missing.append("offload_agent")
+    tool_skipped = bool(missing)
+    if tool_skipped:
+        db.log_tool_call(
+            student_id=student_id,
+            tool_name="tool_skipped",
+            input_text=message,
+            result_summary=f"input={input_kind}, missing={','.join(missing)}",
+        )
 
     db.add_observation(
         student_id=student_id,
@@ -800,10 +765,10 @@ async def submit(req: SubmitRequest):
             if len(images) == 2:
                 break
         s["images"] = images
-    # 실험군만 사진별 예상 유형을 남긴다. 고르지 않은 사진은 none이다.
+    # 탭 2에서는 사진별 예상 유형을 남긴다. 고르지 않은 사진은 none이다.
     # 수행 유형은 수업 중에 분류하지 않고, 문장마다 빈 자리만 둔다.
     expectations = None
-    if mode == "offload" and db.get_study_group(student_id) == "B":
+    if mode == "offload":
         expectations = sanitize_meta_checks(req.metaChecks)
         for sentence in sentences:
             sentence["performedTypes"] = None

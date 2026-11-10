@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 CREATE INDEX IF NOT EXISTS idx_tool_calls_student ON tool_calls(student_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_name ON tool_calls(tool_name);
 
--- 학번이 처음 들어온 집단. A는 대조군(생성형 AI), B는 실험군(AI Agent). 한 번 정하면 바꾸지 않는다.
+-- 학번의 집단. 지금은 대조군을 두지 않아 새 학번은 모두 B(AI Agent)다. 예전 A(생성형 AI) 기록은 그대로 둔다.
 CREATE TABLE IF NOT EXISTS study_groups (
     student_id TEXT PRIMARY KEY,
     group_code TEXT NOT NULL,
@@ -162,18 +162,14 @@ def stored_mode(mode: Optional[str], student_id: Optional[str] = None) -> Option
     """앱 안의 과제 키를 SQLite에 남기는 mode로 바꾼다.
 
     탭 1·탭 3은 학생 과제용 워크스페이스가 따로 없으므로 pre_test, post_test로 기록한다.
-    탭 2는 대조군(A)이면 Gen_AI, 실험군(B)이면 AI_Agent로 기록한다.
+    탭 2는 대조군이 없으므로 모두 AI_Agent로 기록한다. 예전 Gen_AI 기록은 그대로 둔다.
     """
     if mode == "assess":
         return "pre_test"
     if mode == "support":
         return "post_test"
-    if mode == "offload" and student_id:
-        group = get_study_group(student_id)
-        if group == "A":
-            return "Gen_AI"
-        if group == "B":
-            return "AI_Agent"
+    if mode == "offload":
+        return "AI_Agent"
     return mode
 
 
