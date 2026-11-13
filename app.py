@@ -1156,6 +1156,24 @@ OFFLOAD_AGENT_FILES = {
 }
 
 
+def sentences_by_type(photo: dict[str, Any]) -> dict[str, Any]:
+    """delegate 사진의 sentences를 type별 후보(byType)로 묶는다. type 이름을 문장마다 되풀이하지 않는다."""
+    result = {key: value for key, value in photo.items() if key != "sentences"}
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for sentence in photo.get("sentences") or []:
+        if not isinstance(sentence, dict):
+            continue
+        by_type.setdefault(str(sentence.get("type") or ""), []).append(
+            {
+                "level": sentence.get("level"),
+                "objectivity": sentence.get("objectivity"),
+                "text": sentence.get("text"),
+            }
+        )
+    result["byType"] = by_type
+    return result
+
+
 @app.get("/api/tools/offload-agent")
 def tool_offload_agent(
     studentId: str = Query(...),
@@ -1194,7 +1212,11 @@ def tool_offload_agent(
             f"images={','.join(requested) or 'all'}"
         ),
     )
+    if level_id == "delegate":
+        photos = {name: sentences_by_type(photo) for name, photo in photos.items()}
     payload: dict[str, Any] = {"howToUse": data.get("howToUse") or []}
+    if data.get("응답형식"):
+        payload["응답형식"] = data["응답형식"]
     if data.get("의존줄이기"):
         payload["의존줄이기"] = data["의존줄이기"]
     payload["photos"] = photos
