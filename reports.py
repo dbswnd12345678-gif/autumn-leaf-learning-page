@@ -179,6 +179,7 @@ TOOL_NAME_LABELS = {
     "offload_agent_delegate": "1수준 관찰 문장 정답 제공",
     "offload_agent_guide": "2수준 관찰 방법 안내",
     "offload_agent_assist": "3수준 나의 관찰 문장 검토",
+    "ai_use_guidance": "AI 사용 태도 안내",
     "support_photos": "탭 3 사진 메모 조회",
     "tool_skipped": "도구 호출 누락(자동 기록)",
 }

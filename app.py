@@ -597,6 +597,9 @@ async def chat(req: ChatRequest):
     missing = []
     if not called_levels and "offload_photos" not in names:
         missing.append("offload_agent")
+    # 관찰 Flow를 불렀으면 AI 사용 태도 안내 Flow도 불러야 한다.
+    if called_levels and "ai_use_guidance" not in names:
+        missing.append("ai_use_guidance")
     tool_skipped = bool(missing)
     if tool_skipped:
         db.log_tool_call(
@@ -1217,8 +1220,6 @@ def tool_offload_agent(
     payload: dict[str, Any] = {"howToUse": data.get("howToUse") or []}
     if data.get("응답형식"):
         payload["응답형식"] = data["응답형식"]
-    if data.get("의존줄이기"):
-        payload["의존줄이기"] = data["의존줄이기"]
     payload["photos"] = photos
     if data.get("feedbackElements"):
         payload["feedbackElements"] = data["feedbackElements"]
@@ -1228,6 +1229,43 @@ def tool_offload_agent(
     if sentence_method:
         payload["관찰 문장을 적는 방법"] = sentence_method
     return payload
+
+
+@app.get("/api/tools/ai-use-guidance")
+def tool_ai_use_guidance(
+    studentId: str = Query(...),
+    level: Optional[str] = Query(None, description="delegate, guide, assist 중 하나. 비우면 셋 모두"),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """관찰 도움을 준 뒤 덧붙일 AI 사용 태도 안내의 기준. 관찰 지식과 분리한 자료다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+    data = diagnosis.load_knowledge("ai_use_guidance")
+    level_id = (level or "").strip()
+    applied = data.get("지원별 적용") or {}
+    if level_id in applied:
+        applied = {level_id: applied[level_id]}
+    methods = {
+        name: {key: value for key, value in (method or {}).items() if key != "근거"}
+        for name, method in (data.get("안내 방법") or {}).items()
+    }
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="ai_use_guidance",
+        input_text=level_id,
+        result_summary=f"level={level_id or 'all'}",
+    )
+    # 논문 근거와 필드 설명은 편집자용이라 돌려주지 않는다.
+    return {
+        "howToUse": data.get("howToUse") or [],
+        "응답형식": data.get("응답형식"),
+        "태도": data.get("태도") or {},
+        "안내 원칙": data.get("안내 원칙") or [],
+        "안내 방법": methods,
+        "지원별 적용": applied,
+        "대화에서 보이는 모습": data.get("대화에서 보이는 모습") or {},
+        "하지 않는 것": data.get("하지 않는 것") or [],
+    }
 
 
 @app.get("/api/tools/observation-methods")
