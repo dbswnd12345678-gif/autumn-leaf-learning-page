@@ -1,0 +1,327 @@
+{
+  "version": "1.0",
+  "name": "소크라테스식 과학적 관찰 질문 전략",
+  "description": "생물 이미지 관찰 문장을 바탕으로 소크라테스식 질문 하나를 선택하고, 학습자가 재관찰하여 관찰 문장을 직접 수정하도록 안내하는 AI Agent용 전략 자료.",
+  "scope": {
+    "targetLearners": "예비 과학교사 및 대학생",
+    "task": "정지된 생물 이미지를 이용한 시각적 과학적 관찰",
+    "learningGoals": [
+      "관찰 다양도 확대",
+      "관찰 정보 수준 향상",
+      "관찰 객관도 향상",
+      "관찰과 해석 구분",
+      "자신의 관찰 근거 점검"
+    ],
+    "limitations": [
+      "정지 이미지에서 촉각·후각·청각·미각을 실제로 관찰했다고 인정하지 않는다.",
+      "서로 다른 시점의 사진이나 명시적 시계열 자료가 없으면 시간에 따른 변화를 직접 관찰한 것으로 간주하지 않는다.",
+      "사진의 해상도·축척이 불충분하면 정확한 측정값·개수를 요구하지 않는다.",
+      "소크라테스식 질문 유형 자체를 관찰 유형 또는 관찰 수준 점수와 동일시하지 않는다."
+    ]
+  },
+  "evidenceAndDesignNotes": {
+    "socraticTypesSource": "Enhancing Critical Thinking in Education by means of a Socratic Chatbot, Table 1의 다섯 질문 유형을 적용한다. Other는 질문 선택 대상에서 제외한다.",
+    "observationSource": "권용주 외(2005) 관찰 유형 분류와 권용주 외(2007) 관찰 수준·객관도 개념을 설계 기준으로 참고한다.",
+    "locallyDesigned": "우선순위, 대화 상태, 최대 질문 횟수, 후속 질문·종료 규칙은 이 시스템을 위해 새로 제안한 것으로, 인용 논문에서 검증된 규칙이 아니다."
+  },
+  "fields": {
+    "questionTypes": "다섯 소크라테스식 질문 유형별 적용 징후, 목표, 질문 예시 및 경계",
+    "selectionPolicy": "여러 개선점이 있을 때 선택 우선순위와 예외 처리",
+    "dialogueProtocol": "초기 작성부터 질문, 재관찰, 직접 수정, 추가 검토 또는 종료까지 상태 기반 절차",
+    "resultFormat": "API 도구에서 반환하는 JSON 형태의 권장 스키마(현재 서버에 자동 구현되는 기능은 아님)"
+  },
+  "howToUse": [
+    "현재 사진 파일명과 선택한 관찰 문장, 그 문장의 이전 버전, 직전 AI 질문·학습자 응답을 확인한다.",
+    "관찰 문장을 이미지와 대조하고, 관찰 가능한 내용과 추론을 구분하며, 개선점 중 가장 시급한 하나를 고른다.",
+    "selectionPolicy에 따라 questionTypes 중 하나를 고른 다음 사진에서 확인 가능한 대상에 대해 한 가지 소크라테스식 질문만 한다.",
+    "학습자의 후속 응답을 반영하되 완성된 관찰 문장을 대신 작성하지 않는다.",
+    "학습자가 관찰 기록 입력란에서 문장을 직접 작성·수정하도록 안내하고, 변경된 기록을 검토한다.",
+    "학습자가 다른 문장으로 이동하거나 종료를 선택하면 현재 문장에 대한 질문을 중단하고 진행 상태를 남긴다."
+  ],
+  "selectionPolicy": {
+    "priorityOrder": [
+      "이미지에서 확인 불가능한 사실 또는 원인을 단정하면 가정 탐색",
+      "관찰 사실이라고 주장하지만 이미지 근거가 불분명하면 이유와 증거 탐색",
+      "표현이 모호하여 관찰 대상·범위를 특정하기 어려우면 명료화",
+      "관찰은 정확하지만 단일 속성에 그치면 함의와 결과 탐색(실제 확인 가능한 관련 특징으로 한정)",
+      "현재 관찰이 충분히 구체적이고 같은 유형이 반복되면 대안적 관점 탐색"
+    ],
+    "tieBreak": "직전 질문의 목표와 다른 가장 시급한 개선점을 선택하며, 동일 목표가 미해결이면 질문 표현 또는 관찰 영역만 좁혀 재질문한다.",
+    "doNotForceQuantification": "정량화는 셀 수 있는 경계 또는 신뢰할 수 있는 축척이 있을 때만 제안한다. 정성관찰 자체를 잘못된 관찰로 취급하지 않는다.",
+    "doNotForceAllTypes": "모든 학생에게 다섯 질문 유형을 순서대로 제시하지 않는다.",
+    "noUnverifiedRatings": "사진 확인이 불가능한 경우 관찰 수준과 객관도는 잠정 판정만 하고 일치 여부는 unknown으로 표시한다."
+  },
+  "questionTypes": [
+    {
+      "id": "clarification",
+      "nameKo": "명료화",
+      "nameEn": "Clarification",
+      "definition": "생각이나 표현의 모호한 부분을 탐색하는 질문",
+      "detectWhen": [
+        "크다·작다·많다·특이하다 등의 비교 기준이 불명확함",
+        "어느 잎 또는 어느 부분에 대한 기록인지 불명확함",
+        "색이나 모양의 위치·범위가 모호함"
+      ],
+      "goal": "관찰한 대상·위치·속성·비교 기준을 분명히 표현하도록 유도한다.",
+      "possibleObservationEffect": [
+        "객관도",
+        "관찰 수준"
+      ],
+      "exampleQuestions": [
+        "‘크다’고 하셨는데, 어떤 부분과 비교하여 크다고 판단하셨나요?",
+        "말씀하신 노란색은 잎의 어느 부분에서 확인할 수 있나요?",
+        "‘여러 갈래’라고 표현한 부분은 어디서부터 어디까지를 한 갈래로 보셨나요?"
+      ],
+      "followUpIfVague": "사진에서 한 부분을 정해 그 위치와 보이는 특징을 설명하도록 요청한다.",
+      "successIndicator": "학생이 관찰 대상과 특징의 위치 또는 비교 기준을 직접 특정한다.",
+      "avoid": [
+        "AI가 위치나 비교 결과를 먼저 단정하기",
+        "근거 없이 특정 개수를 요구하기"
+      ]
+    },
+    {
+      "id": "assumptions",
+      "nameKo": "가정 탐색",
+      "nameEn": "Probing assumptions",
+      "definition": "주장의 바탕에 있는 가정을 탐색하는 질문",
+      "detectWhen": [
+        "병·영양 부족·노화 등의 원인을 사진만으로 단정함",
+        "보이지 않는 생리적 상태를 관찰 사실로 기술함",
+        "주관적 인상을 관찰 사실처럼 제시함"
+      ],
+      "goal": "직접 관찰한 특징과 그에 근거해 추정한 해석을 구별하도록 한다.",
+      "possibleObservationEffect": [
+        "객관도",
+        "비판적 검토"
+      ],
+      "exampleQuestions": [
+        "‘병이 들었다’는 것은 사진에서 직접 확인한 사실인가요, 아니면 색을 근거로 추론한 것인가요?",
+        "그 원인을 판단하기 전에 사진에서 확실하게 보이는 특징은 무엇인가요?",
+        "그 설명이 맞다는 가정 없이도 기록할 수 있는 잎의 특징은 무엇인가요?"
+      ],
+      "followUpIfVague": "원인에 대한 추론은 별도로 두고 직접 보이는 형태·색·위치를 문장으로 쓰도록 요청한다.",
+      "successIndicator": "학생이 관찰과 추론을 구분하고, 관찰 사실만으로 문장을 다시 쓴다.",
+      "avoid": [
+        "특정 원인을 맞힌 것으로 평가하기",
+        "추론 자체를 금지하기보다는 관찰 기록과 분리하기"
+      ]
+    },
+    {
+      "id": "reasons_evidence",
+      "nameKo": "이유와 증거 탐색",
+      "nameEn": "Probing reasons and evidences",
+      "definition": "생각을 지지하는 정당화 근거나 구체적 증거를 탐색하는 질문",
+      "detectWhen": [
+        "관찰 주장에 해당하는 시각적 증거가 명시되지 않음",
+        "비교 또는 개수 판단의 기준이 모호함",
+        "사진 속 특징과 관찰 문장이 일치하는지 확인이 필요함"
+      ],
+      "goal": "사진 속 확인 가능한 근거를 직접 찾아 판단을 검증하도록 한다.",
+      "possibleObservationEffect": [
+        "객관도",
+        "관찰 수준"
+      ],
+      "exampleQuestions": [
+        "그렇게 기록한 근거를 사진의 어느 부분에서 확인할 수 있나요?",
+        "갈래의 개수를 세려면 각각의 갈래를 어떤 경계로 구분할 수 있을까요?",
+        "두 부분의 색이 다르다고 판단할 수 있는 시각적 특징은 무엇인가요?"
+      ],
+      "followUpIfVague": "학생이 근거를 찾을 수 있도록 사진에서 비교할 수 있는 두 영역을 스스로 선택하게 한다.",
+      "successIndicator": "학생이 시각적 증거와 기록 내용을 연결해 설명하거나 근거 부족을 인정한다.",
+      "avoid": [
+        "보이지 않는 근거를 만들어내기",
+        "정확히 확인하기 어려운 개수를 정답으로 제시하기"
+      ]
+    },
+    {
+      "id": "implications_consequences",
+      "nameKo": "함의와 결과 탐색",
+      "nameEn": "Probing implications and consequences",
+      "definition": "주장의 함의나 결과를 탐색하는 질문",
+      "detectWhen": [
+        "한 부분의 특징만 관찰했으나 연관된 구조를 더 확인할 수 있음",
+        "위치와 속성의 관계를 확인하면 관찰을 심화할 수 있음",
+        "학생의 주장을 실제 이미지의 다른 부분과 대조할 필요가 있음"
+      ],
+      "goal": "관찰한 특징이 다른 부분에서도 나타나는지 검토하여 관계·분포·범위의 추가 관찰로 이어지게 한다.",
+      "possibleObservationEffect": [
+        "관찰 수준",
+        "다양도"
+      ],
+      "exampleQuestions": [
+        "두 색의 분포가 잎 전체에 걸쳐 같다고 가정한다면, 사진의 다른 부분에서도 그 특징을 확인할 수 있나요?",
+        "각 갈래 끝이 모두 뾰족하다는 기록이 맞는지 확인하려면 어떤 다른 갈래를 살펴봐야 할까요?",
+        "이 특징이 잎 전체의 특징이라면, 가장자리에서도 같은 모습이 나타나는지 확인할 수 있을까요?"
+      ],
+      "followUpIfVague": "예측을 사실로 쓰지 않고, 실제 사진에서 확인한 부분만 기록하게 한다.",
+      "successIndicator": "학생이 원래 주장과 관련된 다른 부분을 관찰하고 확인 결과를 기록한다.",
+      "avoid": [
+        "미래 사건 예측을 정지 이미지 관찰 결과로 채점하기",
+        "확인하지 않은 관계를 사실로 제시하기"
+      ]
+    },
+    {
+      "id": "alternative_perspectives",
+      "nameKo": "대안적 관점 탐색",
+      "nameEn": "Probing alternative viewpoints and perspectives",
+      "definition": "다른 가능한 관점이나 시각을 탐색하는 질문",
+      "detectWhen": [
+        "색만 반복하여 관찰하고 있음",
+        "잎 전체만 관찰하여 부분관찰의 기회가 남음",
+        "단수 관찰만 했으나 비교 가능한 대상이 있음",
+        "정성적 특징만 기술하고 정확히 셀 수 있는 특징이 남음"
+      ],
+      "goal": "사진에서 가능한 다른 관찰 방법과 대상을 학습자가 스스로 선택하도록 한다.",
+      "possibleObservationEffect": [
+        "관찰 다양도",
+        "풍부도"
+      ],
+      "exampleQuestions": [
+        "색 이외에 잎의 어느 부분을 살펴보면 다른 특징을 발견할 수 있을까요?",
+        "잎 전체가 아니라 한 부분을 선택해 살펴보면 어떤 새로운 특징을 기록할 수 있을까요?",
+        "사진에서 서로 비교할 수 있는 두 부분을 고른다면 무엇을 비교하시겠어요?"
+      ],
+      "followUpIfVague": "학생이 이전에 관찰하지 않은 부위 또는 속성 한 가지를 선택하게 한다.",
+      "successIndicator": "학생이 이전에 사용하지 않은 관찰 대상·속성·비교 방식을 적용해 직접 문장을 기록한다.",
+      "avoid": [
+        "사진에 없는 관찰 대상 제안하기",
+        "무조건 수치나 여러 유형을 요구하기"
+      ]
+    }
+  ],
+  "dialogueProtocol": {
+    "states": [
+      {
+        "id": "await_initial_record",
+        "nameKo": "최초 기록 대기",
+        "action": "학생이 관찰 문장을 먼저 직접 입력하도록 안내",
+        "next": "analyze"
+      },
+      {
+        "id": "analyze",
+        "nameKo": "관찰 문장 분석",
+        "action": "사진과 문장의 일치 여부, 관찰/해석, 모호성, 관찰 유형·수준·객관도를 점검",
+        "next": "ask"
+      },
+      {
+        "id": "ask",
+        "nameKo": "소크라테스식 질문",
+        "action": "가장 필요한 질문 유형과 질문 하나만 제공",
+        "next": "await_reobservation"
+      },
+      {
+        "id": "await_reobservation",
+        "nameKo": "재관찰",
+        "action": "학생 응답을 듣고 필요한 경우 짧은 후속 질문을 제공",
+        "next": "await_revision"
+      },
+      {
+        "id": "await_revision",
+        "nameKo": "관찰 문장 수정",
+        "action": "학생이 하단 관찰 기록 입력란에서 직접 수정하거나 새 문장을 작성하도록 안내",
+        "next": "review_revision"
+      },
+      {
+        "id": "review_revision",
+        "nameKo": "수정 검토",
+        "action": "이전 버전과 비교하여 실제 변화와 질문 목표의 달성 여부를 확인",
+        "next": "close_or_extend"
+      },
+      {
+        "id": "close_or_extend",
+        "nameKo": "종료 또는 확장",
+        "action": "목표 달성 시 추가 관찰·다른 문장·종료 중 선택하도록 안내",
+        "next": "analyze_or_finish"
+      }
+    ],
+    "maximumQuestionsPerGoal": 3,
+    "questionCountNote": "3회는 실용적인 초기 운영값이며 논문에서 검증된 최적치가 아니다.",
+    "ifStudentDoesNotKnow": "질문을 반복하는 대신 해당 사진에서 관찰 가능한 부위를 하나 안내한다. 관찰 결과는 대신 말하지 않는다.",
+    "ifStudentAsksForAnswer": "실험 프로토콜이 소크라테스식 지원 조건이면 완성 문장 대신 관찰 가능한 부위나 검증 절차를 안내한다. 별도의 정답 제공 비교 조건이라면 그 조건의 정책을 적용한다.",
+    "ifStudentSwitchesSentence": "이전 문장의 대화 및 수정 상태를 보존하고 새 observationId를 활성화한다.",
+    "stopConditions": [
+      "학생이 질문 목표를 달성하고 문장 수정 또는 기록 유지를 선택함",
+      "학생이 해당 문장 검토 종료를 선택함",
+      "현재 이미지에서 추가로 확인 가능한 유의미한 특징이 없음",
+      "동일 목표에 대한 질문 상한에 도달해 더 구체적인 관찰 안내 또는 종료 선택을 제공함"
+    ],
+    "neverAutomaticallySaveAIText": true,
+    "recordingRule": "AI의 대화 답변은 관찰 기록에 자동으로 들어가지 않는다. 학생이 직접 관찰 기록 입력란에 작성하거나 명시적으로 수정 내용을 확정해야 한다."
+  },
+  "evaluationGuardrails": {
+    "objectivityReference": {
+      "0": "관찰이 아닌 것",
+      "1": "관찰 사실이지만 부정확하게 기술된 것",
+      "2": "관찰 사실이고 정성적으로 기술된 것",
+      "3": "관찰 사실이고 정량적으로 기술된 것"
+    },
+    "levelInterpretation": "관찰 기록에서 확인 가능한 정보의 차원 수를 논문 기준에 맞추어 분석하되, 사진·문맥이 부족하면 보류한다.",
+    "diversityInterpretation": "관찰 주제(색/모양)의 수를 논문의 관찰 유형 다양도와 혼동하지 않는다. 관찰 유형 분류 기준에 따라 산출한다.",
+    "validity": "이미지와 일치하지 않는 정량값은 높은 객관도 점수를 자동 부여하지 않는다.",
+    "recordSeparate": [
+      "관찰 유형",
+      "관찰 수준",
+      "관찰 객관도",
+      "사진 일치 여부",
+      "소크라테스식 질문 유형",
+      "학생이 스스로 작성한 문장 버전"
+    ]
+  },
+  "integration": {
+    "recommendedFlowName": "소크라테스식 질문 전략 조회",
+    "recommendedMethod": "GET",
+    "suggestedRoute": "/api/tools/socratic-strategies?studentId={studentId}",
+    "variables": [
+      "studentId",
+      "strategyResult"
+    ],
+    "flowNote": "위 경로는 새로 구현할 API 제안이며 현재 Railway에 존재하는 엔드포인트가 아니다.",
+    "reuseExisting": [
+      "offload_agent_guide.json의 사진별 관찰 가능 부위",
+      "offload_agent_review.json의 판별 및 답하지않음",
+      "offload_agent_delegate.json의 사진별 참조 사실(학생에게 완성 문장 제공 금지)"
+    ],
+    "suggestedInput": [
+      "studentId",
+      "images",
+      "observationId",
+      "currentObservationText",
+      "previousObservationText",
+      "dialogueHistory",
+      "dialogueState"
+    ],
+    "resultFormat": {
+      "observationId": "obs-001",
+      "imageMatch": "unknown",
+      "selectedQuestionType": "clarification",
+      "target": "잎 색의 공간적 분포 명료화",
+      "question": "빨간색과 노란색은 잎의 어느 부분에 각각 나타나나요?",
+      "nextStudentAction": "사진을 다시 관찰한 뒤 하단 기록란에서 문장을 직접 수정",
+      "dialogueState": "await_reobservation",
+      "goalReached": false,
+      "readyToClose": false
+    }
+  },
+  "workedExample": {
+    "studentObservation": "잎은 빨간색과 노란색을 띤다.",
+    "imageMatch": "unknown",
+    "provisionalAssessment": {
+      "method": [
+        "시각",
+        "단순",
+        "정성"
+      ],
+      "object": [
+        "단수",
+        "전체"
+      ],
+      "level": 1,
+      "objectivity": 2,
+      "caution": "사진을 실제로 확인하지 않았으므로 색상 정확성과 객관도는 잠정적이다."
+    },
+    "selectedType": "clarification",
+    "question": "빨간색과 노란색은 잎의 어느 부분에 각각 나타나나요?",
+    "targetRevision": "색의 위치 또는 분포를 학생이 직접 확인하여 관찰 문장에 기록",
+    "doNotDo": "AI가 빨간색과 노란색의 실제 위치를 먼저 제공하지 않는다."
+  }
+}

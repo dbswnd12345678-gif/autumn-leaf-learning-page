@@ -462,11 +462,10 @@ def known_observation_block(observations: list[str]) -> str:
     numbered = "\n".join(f"{i}. {text}" for i, text in enumerate(observations, 1))
     return (
         "[이미 적은 관찰 문장]\n"
-        "아래는 학생이 관찰 문장 칸에 적어 둔 내용이다. "
-        "이번 턴에 새로 말한 것이 아니므로, 묻지 않은 목록을 순서대로 답하지 않는다. "
-        "검토를 부탁하면 이 문장을 검토한다. "
-        "관찰 문장을 줄 때는 같은 내용을 다시 주지 않기 위해 참고한다. "
-        "관찰 방법을 안내할 때는 이미 적은 내용과 겹치지 않는 요소를 고르기 위해 참고한다.\n"
+        "아래는 학생이 관찰 문장 칸에 적어 둔 문장 목록이다. "
+        "이번 턴에 새로 말한 것이 아니고, 이 문장들을 이미 검토했다는 뜻도 아니다. "
+        "묻지 않은 목록을 순서대로 답하거나 임의로 문장을 고르지 않는다. "
+        "학생이 어느 문장을 말하는지 확인할 때 참고한다.\n"
         f"{numbered}\n\n"
     )
 
@@ -595,11 +594,11 @@ async def chat(req: ChatRequest):
     # 질문 종류에 맞는 Flow 하나가 조회한다. 예전 공통 조회도 같은 턴으로 인정한다.
     # 인사처럼 세 가지가 아닌 말은 Flow를 부르지 않으므로 누락으로 남는다.
     missing = []
-    if not called_levels and "offload_photos" not in names:
+    if not called_levels and "offload_photos" not in names and "socratic_strategies" not in names:
         missing.append("offload_agent")
-    # 관찰 Flow를 불렀으면 AI 사용 태도 안내 Flow도 불러야 한다.
-    if called_levels and "ai_use_guidance" not in names:
-        missing.append("ai_use_guidance")
+    # 문장 검토 Flow를 불렀으면 소크라테스식 질문 전략 Flow도 불러야 한다.
+    if called_levels and "socratic_strategies" not in names:
+        missing.append("socratic_strategies")
     tool_skipped = bool(missing)
     if tool_skipped:
         db.log_tool_call(
@@ -1229,6 +1228,34 @@ def tool_offload_agent(
     if sentence_method:
         payload["관찰 문장을 적는 방법"] = sentence_method
     return payload
+
+
+# 전략 파일에서 학생 대화에 쓰는 부분만 돌려준다. 근거 메모, 필드 설명, 연동 제안, 예시는 편집자용이다.
+SOCRATIC_STRATEGY_KEYS = (
+    "howToUse",
+    "scope",
+    "selectionPolicy",
+    "questionTypes",
+    "dialogueProtocol",
+    "evaluationGuardrails",
+)
+
+
+@app.get("/api/tools/socratic-strategies")
+def tool_socratic_strategies(
+    studentId: str = Query(...),
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """소크라테스식 질문 전략(질문 유형 5개, 선택 우선순위, 대화 절차). 사진 자료는 3수준 검토 Flow가 돌려준다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(studentId)
+    data = diagnosis.load_knowledge("socratic_observation_question_strategy")
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="socratic_strategies",
+        result_summary=f"types={len(data.get('questionTypes') or [])}",
+    )
+    return {key: data[key] for key in SOCRATIC_STRATEGY_KEYS if key in data}
 
 
 @app.get("/api/tools/ai-use-guidance")
