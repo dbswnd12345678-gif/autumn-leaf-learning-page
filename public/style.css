@@ -1156,6 +1156,105 @@ body {
   cursor: pointer;
 }
 
+.sentence-edit {
+  padding: 1px 8px;
+  margin-right: 4px;
+  border: 1px solid #b9c6d8;
+  background: #fff;
+  color: #35577f;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.sentence-edit:hover:not(:disabled) {
+  background: #eef3fb;
+}
+
+.sentence-edit:disabled {
+  border-color: #d6dde8;
+  color: #a5afbd;
+  cursor: not-allowed;
+}
+
+.sentence-review {
+  padding: 1px 10px;
+  margin-right: 4px;
+  border: 1px solid #c0521b;
+  background: #fff4ea;
+  color: #a2410f;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.sentence-review:hover:not(:disabled) {
+  background: #c0521b;
+  color: #fff;
+}
+
+.sentence-review:disabled {
+  border-color: #e3cdb6;
+  background: #f6efe6;
+  color: #b9a58f;
+  cursor: not-allowed;
+}
+
+.sentence-review-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: #eef3fb;
+  color: #35577f;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.sentence-review-tag.is-done {
+  background: #e6f4ea;
+  color: #1f6b3a;
+}
+
+.sentence-review-done {
+  padding: 1px 10px;
+  margin-right: 4px;
+  border: 1px solid #2f7d4a;
+  background: #fff;
+  color: #1f6b3a;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.sentence-review-done:hover:not(:disabled) {
+  background: #2f7d4a;
+  color: #fff;
+}
+
+.sentence-review-done:disabled {
+  border-color: #cfdcd3;
+  color: #a5b5aa;
+  cursor: not-allowed;
+}
+
+.sentence-list li.is-reviewing {
+  margin-left: -4px;
+  padding-left: 4px;
+  border-left: 3px solid #c0521b;
+  background: #fff4ea;
+}
+
+.sentence-list li.is-review-done {
+  margin-left: -4px;
+  padding-left: 4px;
+  border-left: 3px solid #2f7d4a;
+}
+
 .sentence-input-row {
   display: flex;
   gap: 8px;

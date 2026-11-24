@@ -13,16 +13,16 @@ const MODES = {
     sentenceTip: "AI 없이 직접 관찰하세요.",
   },
   offload: {
-    subtitle: "AI 도우미에게 질문하면서 단풍잎을 관찰합니다. 관찰 문장은 직접 적고, 물어본 내용에만 도우미가 답해요.",
-    hint: "※ 정답을 물으면 관찰 문장을 받고, 관찰 방법을 물으면 방법을 안내받고, 검토를 부탁하면 내가 쓴 문장을 살펴봐요.",
+    subtitle: "AI Agent과 이야기하며 단풍잎을 관찰합니다. 관찰 문장은 직접 적고, 문장 옆 'AI Agent 검토하기'를 누르면 그 문장에 대한 질문을 받아요.",
+    hint: "※ 관찰 문장을 먼저 적고 'AI Agent 검토하기'를 누르세요. 질문에 답하며 사진을 다시 보고, 아래 관찰 문장을 직접 고쳐 적어요.",
     startTitle: "탭 2 · AI Agent 활용 과제",
-    startDesc: "하나의 AI Agent에게 질문하며 단풍잎을 관찰합니다.\n정답, 관찰 방법, 내가 쓴 문장 검토 중 필요한 것을 부탁하고, 관찰 문장은 직접 적어요.",
-    startDescTimed: "하나의 AI Agent에게 질문하며 단풍잎을 관찰합니다. 정답, 관찰 방법, 내가 쓴 문장 검토 중 필요한 것을 부탁하고, 관찰 문장은 직접 적어요. 시작하면 제한 시간이 흐릅니다.",
+    startDesc: "AI Agent와 이야기하며 단풍잎을 관찰합니다.\n관찰 문장을 직접 적고, 문장 옆 'AI Agent 검토하기'를 눌러 질문을 받아요.",
+    startDescTimed: "AI Agent와 이야기하며 단풍잎을 관찰합니다. 관찰 문장을 직접 적고, 문장 옆 'AI Agent 검토하기'를 눌러 질문을 받아요. 시작하면 제한 시간이 흐릅니다.",
     chat: true,
     sentenceToAI: false,
-    greeting: "안녕하세요. 관찰 문장, 관찰 방법, 내가 쓴 문장 검토를 부탁할 수 있어요. 관찰 문장은 아래에 직접 적어 주세요.",
-    chatPlaceholder: "AI 도우미에게 질문하세요... (Enter 전송, Shift+Enter 줄바꿈)",
-    sentenceTip: "관찰한 내용을 직접 적어요.",
+    greeting: "안녕하세요. 사진을 보고 관찰 문장을 아래에 먼저 적어 보세요. 문장 옆 'AI Agent 검토하기'를 누르면 그 문장에 대해 질문할게요.",
+    chatPlaceholder: "AI Agent에게 질문하세요... (Enter 전송, Shift+Enter 줄바꿈)",
+    sentenceTip: "직접 적고, 'AI Agent 검토하기'로 질문을 받아요.",
   },
   support: {
     subtitle: "사진을 보고 관찰한 내용을 문장으로 적어보세요. 여러 문장을 쓸 수 있어요.",
@@ -208,7 +208,18 @@ function loadJson(key, fallback) {
 }
 
 function loadSentences(mode = currentMode) {
-  return loadJson(storeKey("sentences", mode), []);
+  const list = loadJson(storeKey("sentences", mode), []);
+  if (!Array.isArray(list)) return [];
+  let changed = false;
+  for (const item of list) {
+    if (!item.id) {
+      item.id = `obs-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      changed = true;
+    }
+    if (!Array.isArray(item.revisions)) { item.revisions = []; changed = true; }
+  }
+  if (changed) saveSentences(list, mode);
+  return list;
 }
 
 function saveSentences(list, mode = currentMode) {
@@ -264,6 +275,7 @@ function syncObservationLock() {
   if (chatInput) chatInput.disabled = !editable;
   if (sendBtn) sendBtn.disabled = !editable;
   if (submitBtn) submitBtn.disabled = modeInfo(currentMode)?.status !== "in_progress";
+  syncReviewButtons();
 }
 
 function metaAbilitiesForView() {
@@ -394,7 +406,7 @@ function renderAgentStatus() {
   status.hidden = !show;
   if (!show) return;
   stageEl.textContent = "AI Agent";
-  roleEl.textContent = "정답, 관찰 방법, 문장 검토 중 물어본 내용에 맞춰 도와요.";
+  roleEl.textContent = "문장을 대신 써 주지 않고, 사진을 다시 보게 하는 질문을 해요.";
 }
 
 function chatSessionId(mode = currentMode, threadKey = photoThreadKey(mode)) {
@@ -746,6 +758,92 @@ function renderChat() {
   renderAgentStatus();
 }
 
+// 문장마다 검토 상태를 둔다: none(미검토), reviewing(검토 중), done(검토 완료).
+// 'AI Agent 검토하기'를 누르면 그 문장이 검토 중이 되고, 학생이 '검토 완료'를 눌러야 완료가 된다.
+// 상태는 AI 질문에 학생이 답하는 말에도 문장 목록과 함께 서버로 가서 Agent가 읽는다.
+// AI 대화창의 답변은 문장으로 저장하지 않는다.
+const REVIEW_LABELS = { none: "미검토", reviewing: "검토 중", done: "검토 완료" };
+
+// 한 사진/비교쌍의 현재 대화 대상은 한 문장만 선택한다. 과거 검토 상태는 별개로 유지한다.
+function activeReviewKey(mode = currentMode, threadKey = photoThreadKey(mode)) {
+  return `${storeKey("activeReview", mode)}_${threadKey}`;
+}
+function activeReviewId(mode = currentMode, threadKey = photoThreadKey(mode)) {
+  return localStorage.getItem(activeReviewKey(mode, threadKey)) || "";
+}
+function setActiveReviewId(id, mode = currentMode, threadKey = photoThreadKey(mode)) {
+  if (id) localStorage.setItem(activeReviewKey(mode, threadKey), id);
+  else localStorage.removeItem(activeReviewKey(mode, threadKey));
+}
+function activeReviewSentence(mode = currentMode, threadKey = photoThreadKey(mode)) {
+  return loadSentences(mode).find((item) => item.id === activeReviewId(mode, threadKey)) || null;
+}
+
+function reviewStatus(sentence) {
+  return sentence.reviewStatus === "reviewing" || sentence.reviewStatus === "done" ? sentence.reviewStatus : "none";
+}
+
+function sameSentence(a, b) {
+  return a.id && b.id ? a.id === b.id : a.text === b.text && a.t === b.t && sentenceImages(a).join("|") === sentenceImages(b).join("|");
+}
+
+function updateSentence(sentence, patch) {
+  const cur = loadSentences();
+  const idx = cur.findIndex((item) => sameSentence(item, sentence));
+  if (idx < 0) return false;
+  Object.assign(cur[idx], patch);
+  saveSentences(cur);
+  return true;
+}
+
+function syncReviewButtons() {
+  const blocked = chatBusy || !canEditObservation();
+  sentenceList.querySelectorAll(".sentence-review, .sentence-review-done").forEach((btn) => {
+    btn.disabled = blocked;
+  });
+}
+
+async function requestSentenceReview(sentence) {
+  if (chatBusy || !MODES[currentMode].chat || !canEditObservation() || !getStudentId()) return;
+  const previousStatus = reviewStatus(sentence);
+  const previousActiveId = activeReviewId();
+  const patch = { reviewStatus: "reviewing", reviewCount: (Number(sentence.reviewCount) || 0) + 1, reviewedAt: Date.now() };
+  if (!updateSentence(sentence, patch)) return;
+  setActiveReviewId(sentence.id);
+  // 요청한 문장의 식별자·내용을 명시해서 다른 문장을 잘못 검토하지 않도록 한다.
+  const label = sentenceImages(sentence).length >= 2 ? `[${sentencePhotoLabel(sentence)}] ` : "";
+  const text = `AI Agent 검토하기: [observationId: ${sentence.id}] ${label}"${sentence.text}" 이 문장을 검토해 주세요.`;
+  addMessage(text, "user");
+  renderSentences();
+  const succeeded = await sendToAI(text, "review", sentence.id);
+  if (!succeeded) {
+    updateSentence(sentence, { reviewStatus: previousStatus, reviewCount: Number(sentence.reviewCount) || 0 });
+    setActiveReviewId(previousActiveId);
+    renderSentences();
+  }
+}
+
+function finishSentenceReview(sentence) {
+  if (chatBusy || !canEditObservation()) return;
+  if (updateSentence(sentence, { reviewStatus: "done", reviewDoneAt: Date.now() })) {
+    if (activeReviewId() === sentence.id) setActiveReviewId("");
+    renderSentences();
+  }
+}
+
+function editObservationSentence(sentence) {
+  if (!canEditObservation() || chatBusy) return;
+  const revised = window.prompt("관찰 문장을 직접 수정하세요.", sentence.text);
+  if (revised === null) return;
+  const nextText = revised.trim();
+  if (!nextText || nextText === sentence.text) return;
+  const revisions = Array.isArray(sentence.revisions) ? sentence.revisions.slice() : [];
+  revisions.push({ text: sentence.text, editedAt: Date.now() });
+  // 수정 시 기존 검토 이력은 보존하고, 완료 문장은 다시 검토할 수 있도록 미검토 상태로 돌린다.
+  const patch = { text: nextText, revisions, updatedAt: Date.now(), reviewStatus: reviewStatus(sentence) === "done" ? "none" : reviewStatus(sentence) };
+  if (updateSentence(sentence, patch)) renderSentences();
+}
+
 function renderSentences() {
   const info = modeInfo(currentMode);
   const editable = info?.status === "in_progress";
@@ -766,7 +864,44 @@ function renderSentences() {
     const span = document.createElement("span");
     span.textContent = s.text;
     li.appendChild(span);
+    const reviewable = editable && MODES[currentMode].chat;
+    if (reviewable) {
+      const status = reviewStatus(s);
+      if (status !== "none") {
+        const tag = document.createElement("span");
+        tag.className = `sentence-review-tag is-${status}`;
+        tag.textContent = status === "done" ? "검토 완료" : (activeReviewId() === s.id ? "현재 AI Agent 검토 중" : "검토 중 · 일시 중단");
+        li.appendChild(tag);
+        li.classList.add(status === "done" ? "is-review-done" : "is-reviewing");
+      }
+      const review = document.createElement("button");
+      review.type = "button";
+      review.className = "sentence-review";
+      review.textContent = status === "none" ? "AI Agent 검토하기" : "AI Agent 다시 검토하기";
+      review.title = "이 문장에 대해 AI Agent의 질문을 받아요.";
+      review.disabled = chatBusy || !canEditObservation();
+      review.addEventListener("click", () => requestSentenceReview(s));
+      li.appendChild(review);
+      if (status === "reviewing") {
+        const done = document.createElement("button");
+        done.type = "button";
+        done.className = "sentence-review-done";
+        done.textContent = "검토 완료";
+        done.title = "이 문장의 AI Agent 검토를 마쳤어요.";
+        done.disabled = chatBusy || !canEditObservation();
+        done.addEventListener("click", () => finishSentenceReview(s));
+        li.appendChild(done);
+      }
+    }
     if (editable) {
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "sentence-edit";
+      edit.textContent = "문장 수정";
+      edit.title = "이 문장을 직접 수정하고 이전 버전을 보존합니다.";
+      edit.disabled = chatBusy;
+      edit.addEventListener("click", () => editObservationSentence(s));
+      li.appendChild(edit);
       const del = document.createElement("button");
       del.type = "button";
       del.className = "sentence-del";
@@ -776,7 +911,10 @@ function renderSentences() {
         const idx = cur.findIndex((item) =>
           item.text === s.text && item.t === s.t && sentenceImages(item).join("|") === sentenceImages(s).join("|")
         );
-        if (idx >= 0) cur.splice(idx, 1);
+        if (idx >= 0) {
+          if (activeReviewId() === cur[idx].id) setActiveReviewId("");
+          cur.splice(idx, 1);
+        }
         saveSentences(cur);
         renderSentences();
       });
@@ -935,18 +1073,20 @@ function addMessage(text, type, { store = true, mode = currentMode, threadKey = 
   return div;
 }
 
-async function sendToAI(text, kind) {
+async function sendToAI(text, kind, reviewObservationId = "") {
   const studentId = getStudentId();
-  if (!studentId || chatBusy) return;
+  if (!studentId || chatBusy) return false;
   // 응답이 오기 전에 사진을 바꿔도, 보낸 사진 스레드에만 답이 붙도록 고정한다.
   const mode = currentMode;
   const threadKey = photoThreadKey(mode);
   const images = selectedImages(mode);
   const image = images[0] || null;
   const llmSessionId = chatSessionId(mode, threadKey);
+  const active = activeReviewSentence(mode, threadKey);
   chatBusy = true;
   sendBtn.disabled = true;
   sentenceAddBtn.disabled = true;
+  syncReviewButtons();
   const loadingEl = addMessage("AI가 답변을 준비 중입니다...", "loading", {
     store: false,
     mode,
@@ -963,11 +1103,16 @@ async function sendToAI(text, kind) {
         kind,
         image,
         images,
-        observations: sentencesForSelection().map((item) => item.text).filter((text) => text && text.trim()),
+        activeObservation: active ? { id: active.id, text: active.text, status: reviewStatus(active) } : null,
+        reviewObservationId: reviewObservationId || null,
+        observations: sentencesForSelection()
+          .filter((item) => item.text && item.text.trim())
+          .map((item) => ({ id: item.id, text: item.text, status: reviewStatus(item) })),
       },
     });
     loadingEl?.remove();
     addMessage(data.answer, "ai", { mode, threadKey });
+    return true;
   } catch (err) {
     loadingEl?.remove();
     addMessage(err.message || "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.", "error", {
@@ -975,6 +1120,7 @@ async function sendToAI(text, kind) {
       mode,
       threadKey,
     });
+    return false;
   } finally {
     chatBusy = false;
     syncObservationLock();
@@ -1017,7 +1163,7 @@ function elapsedSeconds() {
 function addSentence(text) {
   const cur = loadSentences();
   const picked = selectedImages();
-  cur.push({ text, t: elapsedSeconds(), images: picked.filter(Boolean) });
+  cur.push({ id: `obs-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`, text, t: elapsedSeconds(), images: picked.filter(Boolean), revisions: [], reviewStatus: "none" });
   saveSentences(cur);
   renderSentences();
 }

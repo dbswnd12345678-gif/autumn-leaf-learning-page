@@ -455,32 +455,50 @@ def student_levels(student_id: str) -> tuple[None, Optional[int]]:
     return None, off_stage
 
 
-def known_observation_block(observations: list[str]) -> str:
-    """학생이 이미 적어 둔 관찰 문장. 이번 질문과 분리해서 AI가 읽게 한다."""
+REVIEW_STATUS_LABELS = {"none": "미검토", "reviewing": "검토 중", "done": "검토 완료"}
+
+
+def known_observation_block(observations: list[dict[str, str]]) -> str:
+    """학생이 이미 적어 둔 관찰 문장과 검토 상태. 이번 질문과 분리해서 AI가 읽게 한다."""
     if not observations:
         return ""
-    numbered = "\n".join(f"{i}. {text}" for i, text in enumerate(observations, 1))
+    numbered = "\n".join(
+        f"{i}. [observationId: {item.get('id') or '미지정'}] {item['text']}"
+        + (f" [{REVIEW_STATUS_LABELS[item['status']]}]" if item.get("status") else "")
+        for i, item in enumerate(observations, 1)
+    )
     return (
         "[이미 적은 관찰 문장]\n"
         "아래는 학생이 관찰 문장 칸에 적어 둔 문장 목록이다. "
-        "이번 턴에 새로 말한 것이 아니고, 이 문장들을 이미 검토했다는 뜻도 아니다. "
-        "묻지 않은 목록을 순서대로 답하거나 임의로 문장을 고르지 않는다. "
-        "학생이 어느 문장을 말하는지 확인할 때 참고한다.\n"
+        "각 문장 뒤의 대괄호는 학생이 화면에서 정한 검토 상태다. "
+        "미검토는 아직 AI Agent 검토하기를 누르지 않은 것, 검토 중은 AI Agent 검토하기를 눌렀고 아직 끝내지 않은 것, "
+        "검토 완료는 학생이 검토 완료를 누른 것이다. "
+        "이번 턴에 새로 말한 것이 아니고, 상태만으로 현재 검토 대상을 정하지 않는다. "
+        "현재 검토 대상은 이번 말에서 학생이 요청한 문장이며, 묻지 않은 목록을 순서대로 답하거나 임의로 문장을 고르지 않는다.\n"
         f"{numbered}\n\n"
     )
 
 
-def sanitize_known_observations(raw: Optional[list[Any]]) -> list[str]:
-    texts: list[str] = []
+def sanitize_known_observations(raw: Optional[list[Any]]) -> list[dict[str, str]]:
+    """문장 목록을 정리한다. 항목은 문자열이거나 {text, status}이고, status는 none, reviewing, done만 받는다."""
+    items: list[dict[str, str]] = []
     for item in raw or []:
         text = item.get("text") if isinstance(item, dict) else item
         text = " ".join(str(text or "").split())
         if not text:
             continue
-        texts.append(text[:500])
-        if len(texts) >= 30:
+        entry = {"text": text[:500]}
+        if isinstance(item, dict):
+            item_id = sanitize_id(str(item.get("id") or ""))[:80]
+            if item_id:
+                entry["id"] = item_id
+        if isinstance(item, dict):
+            status = str(item.get("status") or "none")
+            entry["status"] = status if status in REVIEW_STATUS_LABELS else "none"
+        items.append(entry)
+        if len(items) >= 30:
             break
-    return texts
+    return items
 
 
 def build_support_message(
@@ -501,7 +519,7 @@ class ChatRequest(BaseModel):
     studentId: str
     sessionId: str
     mode: str
-    # question: 학생이 AI에게 한 질문·요청. sentence는 예전 자동 응답용이며 지금은 쓰지 않는다.
+    # question: 학생이 AI에게 한 질문·요청. review: 문장 옆 'AI Agent 검토하기' 버튼으로 보낸 요청. sentence는 예전 자동 응답용이며 지금은 쓰지 않는다.
     kind: str = "question"
     # 학생이 지금 보고 있는 사진. images는 왼쪽부터 최대 두 장이고, image는 왼쪽 한 장이다.
     image: Optional[str] = None
@@ -510,6 +528,9 @@ class ChatRequest(BaseModel):
     observations: Optional[list[Any]] = None
     # 예전 화면이 보내던 값. 실험군은 질문 종류로 Flow를 고르므로 워크스페이스를 나누지 않는다.
     supportLevel: Optional[str] = None
+    # 명시적인 현재 검토 문장: 목록의 과거 검토 상태와 별도로 전달한다.
+    activeObservation: Optional[dict[str, Any]] = None
+    reviewObservationId: Optional[str] = None
 
 
 @app.post("/api/chat")
@@ -529,7 +550,7 @@ async def chat(req: ChatRequest):
     mode = validate_mode(req.mode)
     if mode != "offload":
         raise HTTPException(400, "이 탭에서는 AI를 쓰지 않습니다.")
-    input_kind = "sentence" if req.kind == "sentence" else "question"
+    input_kind = req.kind if req.kind in ("sentence", "review") else "question"
     ensure_study_group(student_id)
 
     session = require_active_session(student_id, mode)
@@ -556,9 +577,28 @@ async def chat(req: ChatRequest):
         right_no = mode_images.index(images[1]) + 1
         message = f"[왼쪽 사진{left_no}, 오른쪽 사진{right_no}]\n{message}"
 
-    known = known_observation_block(sanitize_known_observations(req.observations))
-    # 사진 기록은 Agent Flow가 조회한다. 저장하는 질문 원문에는 넣지 않는다.
-    prompt_message = f"{known}[이번 말]\n{message}" if known else message
+    observations = sanitize_known_observations(req.observations)
+    known = known_observation_block(observations)
+    # 현재 검토 대상은 오직 명시된 문장 ID로 결정한다. 완료된 과거 문장은 자동 선택하지 않는다.
+    active_raw = req.activeObservation or {}
+    active_id = sanitize_id(str(active_raw.get("id") or ""))[:80]
+    requested_id = sanitize_id(req.reviewObservationId or "")[:80]
+    if input_kind == "review" and not requested_id:
+        raise HTTPException(400, "AI Agent 검토할 문장 ID가 필요합니다.")
+    if requested_id and (not active_id or requested_id != active_id):
+        raise HTTPException(400, "선택한 검토 문장과 현재 문장이 일치하지 않습니다.")
+    active = next((item for item in observations if item.get("id") == active_id), None) if active_id else None
+    if active_id and not active:
+        raise HTTPException(400, "현재 검토 문장을 관찰 목록에서 찾지 못했습니다.")
+    current_block = (
+        "[현재 검토 문장]\n"
+        f"observationId: {active['id']}\n"
+        f"문장: {active['text']}\n"
+        f"상태: {REVIEW_STATUS_LABELS.get(active.get('status', 'none'), '미검토')}\n"
+        "이 문장은 현재 AI Agent와 대화하는 대상이다. 다른 과거 문장은 현재 대상이 아니다.\n\n"
+    ) if active else ""
+    kind_block = f"[이번 요청 유형] {input_kind}\n"
+    prompt_message = f"{known}{current_block}{kind_block}[이번 말]\n{message}"
 
     agent_message = build_support_message(prompt_message, student_id, images)
     last_tool_id = db.get_max_tool_call_id(student_id)
@@ -594,11 +634,14 @@ async def chat(req: ChatRequest):
     # 질문 종류에 맞는 Flow 하나가 조회한다. 예전 공통 조회도 같은 턴으로 인정한다.
     # 인사처럼 세 가지가 아닌 말은 Flow를 부르지 않으므로 누락으로 남는다.
     missing = []
-    if not called_levels and "offload_photos" not in names and "socratic_strategies" not in names:
-        missing.append("offload_agent")
-    # 문장 검토 Flow를 불렀으면 소크라테스식 질문 전략 Flow도 불러야 한다.
-    if called_levels and "socratic_strategies" not in names:
-        missing.append("socratic_strategies")
+    if input_kind == "review":
+        if "offload_agent_assist" not in names:
+            missing.append("offload_agent_assist")
+        if "socratic_strategies" not in names:
+            missing.append("socratic_strategies")
+    elif active and "socratic_strategies" not in names:
+        # 현재 문장에 관한 후속 대화인지 인사는 아닌지 LLM만 알 수 있으므로 경고용으로 기록한다.
+        missing.append("socratic_strategies_possible_followup")
     tool_skipped = bool(missing)
     if tool_skipped:
         db.log_tool_call(
