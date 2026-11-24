@@ -146,10 +146,16 @@ def _add_sheet(wb: Workbook, title: str, rows: list[dict[str, Any]]):
     return ws
 
 
-def build_student_xlsx(student_id: str, rows: list[dict[str, Any]]) -> bytes:
+def build_student_xlsx(
+    student_id: str,
+    rows: list[dict[str, Any]],
+    socratic_records: list[dict[str, Any]] | None = None,
+) -> bytes:
     wb = Workbook()
     wb.remove(wb.active)
     _add_sheet(wb, student_id, rows)
+    if socratic_records:
+        _add_socratic_sheet(wb, socratic_records)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -183,6 +189,7 @@ TOOL_NAME_LABELS = {
     "ai_use_guidance": "AI 사용 태도 안내",
     "support_photos": "탭 3 사진 메모 조회",
     "tool_skipped": "도구 호출 누락(자동 기록)",
+    "question_tag_issue": "질문 기록 태그 문제(자동 기록)",
 }
 
 
@@ -405,6 +412,47 @@ def _add_support_fit_sheet(wb: Workbook, support_fits: list[dict[str, Any]]):
     return ws
 
 
+SOCRATIC_HEADERS = [
+    "학번", "관찰 문장 ID", "검토 라운드", "순번", "응답 종류", "질문 유형", "목표",
+    "직전 질문과 같은 목표", "같은 목표 연속 횟수", "목표 달성(다음 응답에서 평가)",
+    "당시 문장", "학생 말", "기록 시각(UTC)",
+]
+
+
+def _add_socratic_sheet(wb: Workbook, records: list[dict[str, Any]]):
+    from socratic_log import ACHIEVED_LABELS, KIND_LABELS, QUESTION_TYPE_LABELS
+
+    ws = wb.create_sheet(title="소크라테스질문")
+    ws.append(SOCRATIC_HEADERS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for item in records:
+        same = item.get("same_goal")
+        is_question = item.get("response_kind") == "question"
+        ws.append(
+            [
+                item.get("student_id"),
+                item.get("observation_id"),
+                item.get("review_round"),
+                item.get("seq"),
+                KIND_LABELS.get(item.get("response_kind"), item.get("response_kind")),
+                QUESTION_TYPE_LABELS.get(item.get("question_type"), item.get("question_type")),
+                item.get("goal"),
+                "" if same is None else ("예" if same else "아니오"),
+                item.get("goal_run"),
+                ACHIEVED_LABELS.get(item.get("goal_achieved") or "", "미평가") if is_question else "",
+                item.get("sentence_text"),
+                item.get("student_message"),
+                item.get("created_at"),
+            ]
+        )
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws)
+    return ws
+
+
 def _add_expectations_sheet(wb: Workbook, mode_sessions: list[dict[str, Any]]):
     ws = wb.create_sheet(title="예상유형")
     ws.append(["학번", "모드", "사진 키", "1번째 사진", "2번째 사진", "예상한 관찰", "수행 유형"])
@@ -469,6 +517,7 @@ def build_admin_xlsx(
     diagnoses: list[dict[str, Any]] | None = None,
     mode_sessions: list[dict[str, Any]] | None = None,
     support_fits: list[dict[str, Any]] | None = None,
+    socratic_records: list[dict[str, Any]] | None = None,
 ) -> bytes:
     wb = Workbook()
     wb.remove(wb.active)
@@ -481,6 +530,8 @@ def build_admin_xlsx(
         _add_expectations_sheet(wb, mode_sessions)
     if support_fits:
         _add_support_fit_sheet(wb, support_fits)
+    if socratic_records:
+        _add_socratic_sheet(wb, socratic_records)
     ws_summary = wb.create_sheet(title="학생목록")
     ws_summary.append(
         [

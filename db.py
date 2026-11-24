@@ -112,6 +112,34 @@ CREATE TABLE IF NOT EXISTS support_fit (
 );
 
 CREATE INDEX IF NOT EXISTS idx_support_fit_student ON support_fit(student_id);
+
+-- 탭 2에서 AI Agent가 한 소크라테스식 응답 하나하나의 구조화 기록.
+-- Agent가 응답 끝에 붙인 [질문기록: ...] 태그를 서버가 읽어 저장한다(학생 화면에서는 지운다).
+-- 관찰 문장(observation_id)마다 질문 유형, 목표, 같은 목표 연속 횟수, 목표 달성 여부를 이어 간다.
+CREATE TABLE IF NOT EXISTS socratic_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    session_id TEXT,
+    observation_id TEXT NOT NULL,
+    -- 'AI Agent 검토하기'를 새로 누를 때마다 1씩 늘어나는 검토 라운드
+    review_round INTEGER NOT NULL,
+    -- 이 문장에서 서버가 저장한 응답 순번(라운드와 상관없이 1부터)
+    seq INTEGER NOT NULL,
+    -- question(질문) 또는 record_guide(질문 대신 기록 안내)
+    response_kind TEXT NOT NULL,
+    question_type TEXT,
+    goal TEXT,
+    same_goal INTEGER,
+    -- 같은 목표로 이어진 질문 횟수(이 질문 포함). 상한 3회를 넘으면 4 이상이 된다.
+    goal_run INTEGER,
+    -- 다음 응답에서 Agent가 평가한 이 질문의 목표 달성: yes, partial, no, na
+    goal_achieved TEXT,
+    sentence_text TEXT,
+    student_message TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_socratic_student_obs ON socratic_questions(student_id, observation_id);
 """
 
 # 기존 observations 표에 3모드용 칼럼을 덧붙인다(이미 있으면 건너뜀).
@@ -908,5 +936,91 @@ def get_all_diagnoses() -> list[dict[str, Any]]:
             "SELECT * FROM diagnoses ORDER BY student_id ASC, id ASC"
         ).fetchall()
         return [_diagnosis_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 소크라테스식 질문 기록 (탭 2)
+# ---------------------------------------------------------------------------
+
+def get_socratic_records(student_id: str, observation_id: str) -> list[dict[str, Any]]:
+    """한 관찰 문장에 대해 서버가 저장한 응답 기록. 오래된 순."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM socratic_questions WHERE student_id = ? AND observation_id = ? ORDER BY id ASC",
+            (student_id, observation_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def add_socratic_record(
+    *,
+    student_id: str,
+    session_id: Optional[str],
+    observation_id: str,
+    review_round: int,
+    response_kind: str,
+    question_type: Optional[str],
+    goal: Optional[str],
+    same_goal: Optional[bool],
+    goal_run: Optional[int],
+    sentence_text: Optional[str],
+    student_message: Optional[str],
+    previous_achieved: Optional[str],
+) -> dict[str, Any]:
+    """응답 하나를 저장한다. previous_achieved가 있으면 직전 질문의 목표 달성 여부도 채운다."""
+    conn = get_connection()
+    try:
+        prior = conn.execute(
+            "SELECT id, response_kind FROM socratic_questions "
+            "WHERE student_id = ? AND observation_id = ? ORDER BY id ASC",
+            (student_id, observation_id),
+        ).fetchall()
+        if previous_achieved:
+            last_question = next((r for r in reversed(prior) if r["response_kind"] == "question"), None)
+            if last_question:
+                conn.execute(
+                    "UPDATE socratic_questions SET goal_achieved = ? WHERE id = ?",
+                    (previous_achieved, last_question["id"]),
+                )
+        cur = conn.execute(
+            """
+            INSERT INTO socratic_questions (
+                student_id, session_id, observation_id, review_round, seq, response_kind,
+                question_type, goal, same_goal, goal_run, goal_achieved,
+                sentence_text, student_message, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+            """,
+            (
+                student_id, session_id, observation_id, review_round, len(prior) + 1, response_kind,
+                question_type, goal,
+                None if same_goal is None else int(bool(same_goal)),
+                goal_run, sentence_text, student_message, now_iso(),
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM socratic_questions WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def list_socratic_records(student_id: Optional[str] = None) -> list[dict[str, Any]]:
+    conn = get_connection()
+    try:
+        if student_id:
+            rows = conn.execute(
+                "SELECT * FROM socratic_questions WHERE student_id = ? ORDER BY id ASC",
+                (student_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM socratic_questions ORDER BY student_id ASC, id ASC"
+            ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()

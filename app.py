@@ -44,6 +44,7 @@ from pydantic import BaseModel, Field
 import db
 import diagnosis
 import reports
+import socratic_log
 
 load_dotenv()
 
@@ -533,6 +534,56 @@ class ChatRequest(BaseModel):
     reviewObservationId: Optional[str] = None
 
 
+def record_socratic_response(
+    *,
+    student_id: str,
+    session_id: str,
+    active: dict[str, str],
+    tag: Optional[dict[str, Any]],
+    records: list[dict[str, Any]],
+    review_round: int,
+    student_text: str,
+) -> None:
+    """현재 검토 문장이 있는 턴의 질문 기록을 저장한다. 태그에 문제가 있으면 호출 기록에 남긴다."""
+    observation_id = active["id"]
+    issue: Optional[str] = None
+    if tag is None:
+        issue = "tag_missing"
+    elif not tag.get("valid"):
+        issue = "tag_unreadable"
+    elif tag["kind"] in ("question", "record_guide"):
+        is_question = tag["kind"] == "question"
+        round_records = [r for r in records if int(r.get("review_round") or 1) == review_round]
+        goal_run = socratic_log.next_goal_run(round_records, tag) if is_question else None
+        if is_question and not tag.get("question_type"):
+            issue = "type_unknown"
+        elif is_question and tag.get("same_goal") is None:
+            issue = "same_goal_missing"
+        elif is_question and not tag.get("goal"):
+            issue = "goal_missing"
+        db.add_socratic_record(
+            student_id=student_id,
+            session_id=session_id,
+            observation_id=observation_id,
+            review_round=review_round,
+            response_kind="question" if is_question else "record_guide",
+            question_type=tag.get("question_type") if is_question else None,
+            goal=tag.get("goal") if is_question else None,
+            same_goal=tag.get("same_goal") if is_question else None,
+            goal_run=goal_run,
+            sentence_text=active.get("text"),
+            student_message=re.sub(r"\[observationId:[^\]]*\]\s*", "", student_text)[:500],
+            previous_achieved=tag.get("previous_achieved"),
+        )
+    if issue:
+        db.log_tool_call(
+            student_id=student_id,
+            tool_name="question_tag_issue",
+            input_text=student_text[:500],
+            result_summary=f"observation={observation_id}, issue={issue}",
+        )
+
+
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
     message = (req.message or "").strip()
@@ -598,21 +649,26 @@ async def chat(req: ChatRequest):
         "이 문장은 현재 AI Agent와 대화하는 대상이다. 다른 과거 문장은 현재 대상이 아니다.\n\n"
     ) if active else ""
     kind_block = f"[이번 요청 유형] {input_kind}\n"
-    prompt_message = f"{known}{current_block}{kind_block}[이번 말]\n{message}"
+    # 이 문장에 대해 서버가 저장한 질문 유형·목표·같은 목표 횟수. Agent가 대화 기록으로 세지 않게 한다.
+    is_review = input_kind == "review"
+    socratic_records = db.get_socratic_records(student_id, active_id) if active else []
+    review_round = socratic_log.current_round(socratic_records, is_review) if active else 0
+    history_block = socratic_log.history_block(socratic_records, is_review) if active else ""
+    prompt_message = f"{known}{current_block}{history_block}{kind_block}[이번 말]\n{message}"
 
     agent_message = build_support_message(prompt_message, student_id, images)
     last_tool_id = db.get_max_tool_call_id(student_id)
 
-    answer = sanitize_answer(
-        await call_anythingllm(
-            slug,
-            agent_message,
-            f"{mode}-{session_id}",
-            attachments,
-            llm_mode="chat",
-        )
-        or "(응답이 비어 있습니다)"
+    raw_answer = await call_anythingllm(
+        slug,
+        agent_message,
+        f"{mode}-{session_id}",
+        attachments,
+        llm_mode="chat",
     )
+    # 응답 끝 [질문기록: ...] 태그는 서버만 읽는다. 학생 화면과 저장되는 답에서는 지운다.
+    question_tag = socratic_log.parse_question_tag(raw_answer or "")
+    answer = sanitize_answer(socratic_log.strip_question_tag(raw_answer or "")) or "(응답이 비어 있습니다)"
 
     tools_called: Optional[str] = None
     tool_skipped: Optional[bool] = None
@@ -649,6 +705,17 @@ async def chat(req: ChatRequest):
             tool_name="tool_skipped",
             input_text=message,
             result_summary=f"input={input_kind}, missing={','.join(missing)}",
+        )
+
+    if active:
+        record_socratic_response(
+            student_id=student_id,
+            session_id=session_id,
+            active=active,
+            tag=question_tag,
+            records=socratic_records,
+            review_round=review_round,
+            student_text=student_text,
         )
 
     db.add_observation(
@@ -1434,7 +1501,7 @@ def export_history(student_id: str, format: str = Query("xlsx")):
             headers={"Content-Disposition": f'attachment; filename="{filename_base}.docx"'},
         )
 
-    buf = reports.build_student_xlsx(student_id, rows)
+    buf = reports.build_student_xlsx(student_id, rows, db.list_socratic_records(student_id))
     return Response(
         content=buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1507,6 +1574,7 @@ def admin_export(
     rows_by_student = {s["student_id"]: db.get_student_history(s["student_id"]) for s in students}
     tool_calls = db.get_all_tool_calls()
     support_fits = db.list_support_fits()
+    socratic_records = db.list_socratic_records()
     fmt = format.lower()
     if fmt == "docx":
         buf = reports.build_admin_docx(students, rows_by_student, tool_calls)
@@ -1523,6 +1591,7 @@ def admin_export(
         diagnoses=diagnoses,
         mode_sessions=mode_sessions,
         support_fits=support_fits,
+        socratic_records=socratic_records,
     )
     return Response(
         content=buf,
