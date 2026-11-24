@@ -756,6 +756,7 @@ function renderChat() {
   if (spec.greeting) addMessage(spec.greeting, "ai", { store: false });
   loadChat().forEach((m) => addMessage(m.text, m.type, { store: false }));
   renderAgentStatus();
+  renderActiveReviewBanner();
 }
 
 // 문장마다 검토 상태를 둔다: none(미검토), reviewing(검토 중), done(검토 완료).
@@ -927,6 +928,26 @@ function renderSentences() {
   sentenceCount.textContent = String(list.length);
   sentenceList.scrollTop = sentenceList.scrollHeight;
   renderMetaGate();
+  renderActiveReviewBanner();
+}
+
+// 채팅 입력칸 위에, 지금 대화가 어느 문장에 대한 것인지 보여 준다.
+// 'AI Agent 검토하기'를 누르면 그 문장이 현재 문장이 되고, '검토 완료'를 누르면 사라진다.
+function renderActiveReviewBanner() {
+  const el = $("active-review-banner");
+  if (!el) return;
+  const active = MODES[currentMode].chat && !workArea.hidden && modeInfo(currentMode)?.status === "in_progress"
+    ? activeReviewSentence()
+    : null;
+  if (!active) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const text = active.text.length > 70 ? `${active.text.slice(0, 70)}…` : active.text;
+  el.textContent = `지금 대화 중인 문장: “${text}”`;
+  el.title = active.text;
+  el.hidden = false;
 }
 
 function applyMode() {
