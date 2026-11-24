@@ -1,8 +1,8 @@
 """탭 2 소크라테스식 질문 기록: 응답 끝 태그 해석과 다음 요청에 붙일 이력 글.
 
-Agent는 [현재 검토 문장]이 있는 응답의 맨 마지막 줄에 아래 한 줄을 붙인다.
-  [질문기록: 응답=질문; 유형=reasons_evidence; 목표=색 범위 구체화; 같은목표=예; 직전목표달성=아니오]
-서버는 이 줄을 읽어 저장하고, 학생에게 보내는 답에서는 지운다.
+Agent는 [현재 검토 문장]이 있는 턴마다 '소크라테스 질문 기록' Flow를 한 번 호출해
+응답 종류, 질문 유형, 목표, 같은 목표 여부, 직전 목표 달성을 서버에 알린다(/api/tools/socratic-record).
+Flow를 부르지 못했을 때를 대비해, 응답 끝에 [질문기록: ...] 태그가 있으면 같은 값으로 읽고 학생 화면에서는 지운다.
 같은 문장의 다음 요청에는 저장한 이력을 [현재 문장 질문 이력]으로 붙여, Agent가 횟수를 세지 않게 한다.
 """
 
@@ -91,44 +91,56 @@ def _split_fields(body: str) -> dict[str, str]:
     return fields
 
 
-def parse_question_tag(text: str) -> Optional[dict[str, Any]]:
-    """응답 끝 태그를 해석한다. 태그가 없거나 읽을 수 없으면 None.
+def tag_from_values(
+    kind: Any = "",
+    question_type: Any = "",
+    goal: Any = "",
+    same_goal: Any = "",
+    previous_achieved: Any = "",
+) -> dict[str, Any]:
+    """Flow 호출 값이나 응답 끝 태그의 값을 같은 규칙으로 정리한다.
 
-    마지막 태그를 쓴다. 반환값 키: kind, question_type, goal, same_goal, previous_achieved, valid.
-    valid가 False이면 태그는 있었지만 응답 종류를 알 수 없다.
+    반환값 키: kind, question_type, goal, same_goal, previous_achieved, valid.
+    valid가 False이면 응답 종류를 알 수 없다.
     """
+    kind_raw = str(kind or "").strip().lower()
+    kind_norm = _KIND_ALIASES.get(kind_raw) or _KIND_ALIASES.get(re.sub(r"\s+", "", kind_raw))
+    raw_type = str(question_type or "").strip()
+    qtype = None
+    if raw_type:
+        key = raw_type.lower().replace(" ", "_")
+        if key in QUESTION_TYPE_LABELS:
+            qtype = key
+        else:
+            qtype = _TYPE_ALIASES.get(raw_type) or _TYPE_ALIASES.get(raw_type.replace(" ", ""))
+    goal_text = re.sub(r"\s+", " ", str(goal or "")).strip()[:120] or None
+    same_raw = re.sub(r"\s+", "", str(same_goal or "")).lower()
+    same: Optional[bool] = None
+    if same_raw in ("예", "yes", "true", "y"):
+        same = True
+    elif same_raw in ("아니오", "아니요", "no", "false", "n"):
+        same = False
+    achieved_raw = str(previous_achieved or "").strip().lower()
+    achieved = _ACHIEVED_ALIASES.get(achieved_raw) or _ACHIEVED_ALIASES.get(achieved_raw.replace(" ", ""))
+    return {
+        "kind": kind_norm,
+        "question_type": qtype,
+        "goal": goal_text,
+        "same_goal": same,
+        "previous_achieved": achieved,
+        "valid": kind_norm is not None,
+    }
+
+
+def parse_question_tag(text: str) -> Optional[dict[str, Any]]:
+    """응답 끝 [질문기록: ...] 태그를 해석한다(Flow를 쓰지 못했을 때의 보조 수단). 없으면 None. 마지막 태그를 쓴다."""
     matches = _TAG_RE.findall(str(text or ""))
     if not matches:
         return None
     fields = _split_fields(matches[-1])
-    kind = _KIND_ALIASES.get(re.sub(r"\s+", "", fields.get("응답", "")).lower()) or _KIND_ALIASES.get(
-        fields.get("응답", "").strip().lower()
+    return tag_from_values(
+        fields.get("응답"), fields.get("유형"), fields.get("목표"), fields.get("같은목표"), fields.get("직전목표달성")
     )
-    raw_type = fields.get("유형", "").strip()
-    question_type = None
-    if raw_type:
-        key = raw_type.lower().replace(" ", "_")
-        if key in QUESTION_TYPE_LABELS:
-            question_type = key
-        else:
-            question_type = _TYPE_ALIASES.get(raw_type) or _TYPE_ALIASES.get(raw_type.replace(" ", ""))
-    goal = re.sub(r"\s+", " ", fields.get("목표", "")).strip()[:120] or None
-    same_raw = re.sub(r"\s+", "", fields.get("같은목표", "")).lower()
-    same_goal: Optional[bool] = None
-    if same_raw in ("예", "yes", "true", "y"):
-        same_goal = True
-    elif same_raw in ("아니오", "아니요", "no", "false", "n"):
-        same_goal = False
-    achieved_raw = fields.get("직전목표달성", "").strip().lower()
-    achieved = _ACHIEVED_ALIASES.get(achieved_raw) or _ACHIEVED_ALIASES.get(achieved_raw.replace(" ", ""))
-    return {
-        "kind": kind,
-        "question_type": question_type,
-        "goal": goal,
-        "same_goal": same_goal,
-        "previous_achieved": achieved,
-        "valid": kind is not None,
-    }
 
 
 def current_round(records: list[dict[str, Any]], is_review: bool) -> int:

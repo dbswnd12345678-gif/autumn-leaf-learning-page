@@ -543,13 +543,22 @@ def record_socratic_response(
     records: list[dict[str, Any]],
     review_round: int,
     student_text: str,
+    reported_observation_id: str = "",
 ) -> None:
     """현재 검토 문장이 있는 턴의 질문 기록을 저장한다. 태그에 문제가 있으면 호출 기록에 남긴다."""
     observation_id = active["id"]
     issue: Optional[str] = None
     if tag is None:
-        issue = "tag_missing"
-    elif not tag.get("valid"):
+        return
+    if reported_observation_id and reported_observation_id != observation_id:
+        # 다른 문장 ID로 알려도 서버가 아는 현재 문장에 저장하고, 불일치는 기록해 둔다.
+        db.log_tool_call(
+            student_id=student_id,
+            tool_name="question_tag_issue",
+            input_text=student_text[:500],
+            result_summary=f"observation={observation_id}, issue=observation_id_mismatch({reported_observation_id})",
+        )
+    if not tag.get("valid"):
         issue = "tag_unreadable"
     elif tag["kind"] in ("question", "record_guide"):
         is_question = tag["kind"] == "question"
@@ -686,6 +695,20 @@ async def chat(req: ChatRequest):
     if recorded:
         observation_types = json.dumps(recorded[-1], ensure_ascii=False)
     called_levels = [SUPPORT_LEVEL_TOOLS[name] for name in names if name in SUPPORT_LEVEL_TOOLS]
+    # 질문 유형·목표는 Agent가 '소크라테스 질문 기록' Flow로 알린 값을 우선하고, 없으면 응답 끝 태그를 쓴다.
+    record_calls = [c for c in new_calls if c.get("tool_name") == "socratic_record"]
+    if record_calls:
+        try:
+            values = json.loads(record_calls[-1].get("result_summary") or "{}")
+        except ValueError:
+            values = {}
+        question_tag = socratic_log.tag_from_values(
+            values.get("responseKind"), values.get("questionType"), values.get("goal"),
+            values.get("sameGoal"), values.get("previousGoalAchieved"),
+        )
+        recorded_observation_id = values.get("observationId") or ""
+    else:
+        recorded_observation_id = ""
     support_level = called_levels[-1] if called_levels else None
     # 질문 종류에 맞는 Flow 하나가 조회한다. 예전 공통 조회도 같은 턴으로 인정한다.
     # 인사처럼 세 가지가 아닌 말은 Flow를 부르지 않으므로 누락으로 남는다.
@@ -698,6 +721,8 @@ async def chat(req: ChatRequest):
     elif active and "socratic_strategies" not in names:
         # 현재 문장에 관한 후속 대화인지 인사는 아닌지 LLM만 알 수 있으므로 경고용으로 기록한다.
         missing.append("socratic_strategies_possible_followup")
+    if active and not record_calls and question_tag is None:
+        missing.append("socratic_record")
     tool_skipped = bool(missing)
     if tool_skipped:
         db.log_tool_call(
@@ -716,6 +741,7 @@ async def chat(req: ChatRequest):
             records=socratic_records,
             review_round=review_round,
             student_text=student_text,
+            reported_observation_id=recorded_observation_id,
         )
 
     db.add_observation(
@@ -1113,6 +1139,56 @@ def tool_support_sentence_type(
         result_summary=stored,
     )
     return {"ok": True, "recorded": True, "types": types}
+
+
+class SocraticRecordBody(BaseModel):
+    """Agent가 이번 응답의 질문 유형·목표를 알리는 값. Flow는 문자열로 보낸다."""
+
+    studentId: str
+    observationId: str = ""
+    responseKind: str = ""
+    questionType: str = ""
+    goal: str = ""
+    sameGoal: str = ""
+    previousGoalAchieved: str = ""
+
+
+@app.post("/api/tools/socratic-record")
+def tool_socratic_record(
+    body: SocraticRecordBody,
+    x_tool_key: Optional[str] = Header(None, alias="x-tool-key"),
+):
+    """탭 2 응답마다 Agent가 부른다. 호출 사실과 값만 남기고, 횟수 계산과 저장은 chat()이 한다."""
+    require_tool_key(x_tool_key)
+    student_id = tool_student(body.studentId)
+    values = {
+        "observationId": sanitize_id(body.observationId)[:80],
+        "responseKind": body.responseKind[:40],
+        "questionType": body.questionType[:60],
+        "goal": body.goal[:200],
+        "sameGoal": body.sameGoal[:20],
+        "previousGoalAchieved": body.previousGoalAchieved[:20],
+    }
+    tag = socratic_log.tag_from_values(
+        values["responseKind"], values["questionType"], values["goal"], values["sameGoal"], values["previousGoalAchieved"]
+    )
+    problems = []
+    if not tag["valid"]:
+        problems.append("responseKind는 질문, 기록안내, 기타 중 하나")
+    elif tag["kind"] == "question":
+        if not tag["question_type"]:
+            problems.append("questionType은 " + ", ".join(socratic_log.QUESTION_TYPE_LABELS) + " 중 하나")
+        if not tag["goal"]:
+            problems.append("goal이 필요함")
+        if tag["same_goal"] is None:
+            problems.append("sameGoal은 예 또는 아니오")
+    db.log_tool_call(
+        student_id=student_id,
+        tool_name="socratic_record",
+        input_text=values["observationId"],
+        result_summary=json.dumps(values, ensure_ascii=False),
+    )
+    return {"ok": not problems, "fix": problems} if problems else {"ok": True}
 
 
 @app.get("/api/tools/support-methods")

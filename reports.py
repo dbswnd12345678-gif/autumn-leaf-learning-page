@@ -189,6 +189,7 @@ TOOL_NAME_LABELS = {
     "ai_use_guidance": "AI 사용 태도 안내",
     "support_photos": "탭 3 사진 메모 조회",
     "tool_skipped": "도구 호출 누락(자동 기록)",
+    "socratic_record": "소크라테스 질문 기록",
     "question_tag_issue": "질문 기록 태그 문제(자동 기록)",
 }
 
