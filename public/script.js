@@ -810,12 +810,14 @@ async function requestSentenceReview(sentence) {
   const patch = { reviewStatus: "reviewing", reviewCount: (Number(sentence.reviewCount) || 0) + 1, reviewedAt: Date.now() };
   if (!updateSentence(sentence, patch)) return;
   setActiveReviewId(sentence.id);
-  // 요청한 문장의 식별자·내용을 명시해서 다른 문장을 잘못 검토하지 않도록 한다.
+  // 서버에는 observationId를 포함한 문장을 보내 문장끼리 구분하게 하고,
+  // 학생 화면과 저장된 대화에는 ID를 뺀 문장만 보여 준다.
   const label = sentenceImages(sentence).length >= 2 ? `[${sentencePhotoLabel(sentence)}] ` : "";
-  const text = `AI Agent 검토하기: [observationId: ${sentence.id}] ${label}"${sentence.text}" 이 문장을 검토해 주세요.`;
-  addMessage(text, "user");
+  const shownText = `AI Agent 검토하기: ${label}"${sentence.text}" 이 문장을 검토해 주세요.`;
+  const sentText = `AI Agent 검토하기: [observationId: ${sentence.id}] ${label}"${sentence.text}" 이 문장을 검토해 주세요.`;
+  addMessage(shownText, "user");
   renderSentences();
-  const succeeded = await sendToAI(text, "review", sentence.id);
+  const succeeded = await sendToAI(sentText, "review", sentence.id);
   if (!succeeded) {
     updateSentence(sentence, { reviewStatus: previousStatus, reviewCount: Number(sentence.reviewCount) || 0 });
     setActiveReviewId(previousActiveId);
@@ -1064,7 +1066,8 @@ function addMessage(text, type, { store = true, mode = currentMode, threadKey = 
     if (type === "ai") {
       div.innerHTML = renderMarkdown(text);
     } else {
-      div.textContent = text;
+      // 예전에 저장된 대화에 observationId가 남아 있어도 학생에게는 보이지 않게 한다.
+      div.textContent = text.replace(/\[observationId:\s*[^\]]*\]\s*/g, "");
     }
     chatLog.appendChild(div);
     chatLog.scrollTop = chatLog.scrollHeight;
